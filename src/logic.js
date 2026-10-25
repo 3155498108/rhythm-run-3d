@@ -167,7 +167,7 @@
 
     var s = {
       t: 0, gt: 0, inited: false, started: false,
-      phase: 'idle', cd: C.COUNTDOWN, goT: 0,
+      phase: 'idle', cd: C.COUNTDOWN, cdN: 4, goT: 0,
       mode: mode === 'duo' ? 'duo' : 'solo',
 
       gates: gates,
@@ -272,7 +272,8 @@
       s.phase = 'ready';
       s.cd = C.COUNTDOWN;
       for (var i = 0; i < s.players.length; i++) s.players[i].startAt = null;
-      s.events.push({ k: 'countdown' });
+      s.cdN = 3;
+      s.events.push({ k: 'countdown', n: 3 });
       return 'ready';
     }
     if (s.phase === 'ready') {
@@ -674,6 +675,12 @@
 
     if (s.phase === 'ready') {
       s.cd -= dt;
+      // 数字用的是 ceil(cd - 0.2)，音效跟着同一个分界走，画面和声音不会错位
+      var cn = Math.ceil(s.cd - 0.2);
+      if (cn < s.cdN) {
+        s.cdN = cn;
+        if (cn > 0) s.events.push({ k: 'countdown', n: cn });
+      }
       for (var k = 0; k < s.players.length; k++) {
         var pr = s.players[k];
         pr.speed = 0;

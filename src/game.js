@@ -65,6 +65,17 @@
     slip: function () { this.tone(660, 0.28, 'sawtooth', 0.04, 180); },
     zap: function () { this.tone(1200, 0.16, 'square', 0.035, 300); },
     beep: function (f) { this.tone(f, 0.12, 'square', 0.05); },
+    // 倒计时 3 / 2 / 1：音高一级比一级高，1 之后接 GO 的和弦
+    countdown: function (n) {
+      var f = n >= 3 ? 523.25 : n === 2 ? 659.25 : 880;
+      this.tone(f, 0.15, 'square', 0.055);
+      this.tone(f * 2, 0.07, 'sine', 0.02);
+    },
+    go: function () {
+      this.tone(1046.5, 0.26, 'square', 0.055);
+      this.tone(1568, 0.32, 'sine', 0.042);
+      this.tone(2093, 0.2, 'sine', 0.022);
+    },
     boost: function () { this.tone(300, 0.34, 'sine', 0.05, 1100); },
     finish: function () {
       var self = this, notes = [523, 659, 784, 1046];
@@ -156,7 +167,7 @@
           break;
         }
 
-        case 'countdown': Sfx.beep(660); break;
+        case 'countdown': Sfx.countdown(e.n); break;
         case 'startpress':
           Sfx.beep(880);
           if (e.cd > C.START_FALSE) popup('太早了！', '#e05243', 20);
@@ -165,7 +176,7 @@
           if (e.quality > 0.75) popup('完美起步！', '#2fb87f', 26);
           else if (e.quality > 0.4) popup('不错的起步', '#43d69b', 20);
           else popup('起步有点慢', 'rgba(90,105,126,0.92)', 18);
-          Sfx.beep(1180);
+          Sfx.go();
           break;
         case 'false_start':
           popup('抢跑，等一下！', '#e05243', 22);
