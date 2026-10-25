@@ -737,7 +737,7 @@
     if (dist > 190) return;
     var a = clamp((190 - dist) / 60, 0, 1);
     ctx.globalAlpha = a;
-    var hx = 1252, hy = 330;
+    var hx = 1252, hy = 352;
     card(ctx, hx - 138, hy - 26, 138, 52, 16, 0.88);
     ctx.fillStyle = '#ff8f6e';
     ctx.beginPath();
