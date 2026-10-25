@@ -249,9 +249,15 @@
 
     drawGatePrompt(ctx, s, t);
     drawNextGateHint(ctx, s, t);
+    drawObstacleHint(ctx, s, t);
+    drawJumpBtn(ctx, s, t);
+    drawItems(ctx, s, t);
+    drawRank(ctx, s, t);
+    drawRivalDots(ctx, s);
+    drawFx(ctx, s, t);
     drawPopups(ctx, view);
 
-    if (s.started && s.elapsed < 9) {
+    if (s.phase === 'run' && s.elapsed < 8) {
       var a2 = clamp(1 - (s.elapsed - 6) / 3, 0, 1);
       ctx.globalAlpha = a2;
       ctx.textAlign = 'center';
@@ -265,19 +271,348 @@
 
   function drawPopups(ctx, view) {
     ctx.textAlign = 'center';
+    var placed = [];
     for (var i = 0; i < view.popups.length; i++) {
       var p = view.popups[i];
       var a = clamp(p.life / p.max, 0, 1);
+      var py = p.y - (1 - a) * 34;
+      // 同帧多条飘字互相错开，避免叠在一起看不清
+      var guard = 0;
+      while (guard++ < 4) {
+        var hit = false;
+        for (var j = 0; j < placed.length; j++) {
+          if (Math.abs(placed[j].y - py) < 26 && Math.abs(placed[j].x - p.x) < 110) { hit = true; break; }
+        }
+        if (!hit) break;
+        py -= 30;
+      }
+      placed.push({ x: p.x, y: py });
+
       ctx.globalAlpha = a;
       ctx.fillStyle = p.color;
       ctx.font = '800 ' + p.size + 'px ' + FONT;
       ctx.strokeStyle = 'rgba(255,255,255,0.85)';
       ctx.lineWidth = 4;
       ctx.lineJoin = 'round';
-      ctx.strokeText(p.text, p.x, p.y - (1 - a) * 34);
-      ctx.fillText(p.text, p.x, p.y - (1 - a) * 34);
+      ctx.strokeText(p.text, p.x, py);
+      ctx.fillText(p.text, p.x, py);
       ctx.globalAlpha = 1;
     }
+    ctx.textAlign = 'left';
+  }
+
+  /* ---------------- 名次 ---------------- */
+  function drawRank(ctx, s, t) {
+    var x = 348, y = 80, w = 118, h = 34;
+    pill(ctx, x, y, w, h, 17, 'rgba(255,255,255,0.9)');
+    ctx.fillStyle = s.rank === 1 ? '#e2653f' : P.ink;
+    ctx.font = '800 16px ' + FONT;
+    ctx.fillText('第 ' + s.rank + ' 名', x + 16, y + 23);
+    ctx.fillStyle = P.ink3;
+    ctx.font = '700 13px ' + FONT;
+    ctx.textAlign = 'right';
+    ctx.fillText('/ ' + (s.rivals.length + 1), x + w - 14, y + 23);
+    ctx.textAlign = 'left';
+  }
+
+  /* 进度条上的对手小点 */
+  function drawRivalDots(ctx, s) {
+    var C0 = global.Logic.C;
+    var px0 = 348, pw = 566, py = 40;
+    for (var i = 0; i < s.rivals.length; i++) {
+      var r = s.rivals[i];
+      var f = clamp(r.dist / C0.RACE_LEN, 0, 1);
+      var x = px0 + pw * f;
+      ctx.fillStyle = '#' + ('000000' + r.color.toString(16)).slice(-6);
+      ctx.beginPath();
+      ctx.arc(x, py + 5, 5, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
+  }
+
+  /* ---------------- 道具槽 ---------------- */
+  var ITEM_SLOTS = [
+    { x: 1126, y: 620, w: 58, h: 58 },
+    { x: 1196, y: 620, w: 58, h: 58 }
+  ];
+
+  var ITEM_LOOK = {
+    boost: { bg: 'rgba(245,166,35,0.16)', fg: '#f5a623', name: '加速' },
+    jam: { bg: 'rgba(138,107,255,0.16)', fg: '#8a6bff', name: '干扰' },
+    bottle: { bg: 'rgba(91,192,248,0.16)', fg: '#3aa6e0', name: '水瓶' },
+    peel: { bg: 'rgba(255,209,102,0.2)', fg: '#e0aa1f', name: '香蕉皮' }
+  };
+
+  function itemIcon(ctx, kind, cx, cy, scale) {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scale, scale);
+    if (kind === 'boost') {
+      ctx.fillStyle = '#f5a623';
+      ctx.beginPath();
+      ctx.moveTo(2, -15); ctx.lineTo(-8, 2); ctx.lineTo(-1, 2);
+      ctx.lineTo(-4, 15); ctx.lineTo(9, -4); ctx.lineTo(2, -4);
+      ctx.closePath(); ctx.fill();
+    } else if (kind === 'jam') {
+      ctx.strokeStyle = '#8a6bff';
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      for (var i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.moveTo(-12 + i * 1.5, -10 + i * 9);
+        ctx.quadraticCurveTo(-2, -16 + i * 9, 12 - i * 1.5, -10 + i * 9);
+        ctx.stroke();
+      }
+      ctx.lineCap = 'butt';
+    } else if (kind === 'bottle') {
+      ctx.fillStyle = '#3aa6e0';
+      rr(ctx, -7, -8, 14, 20, 4); ctx.fill();
+      rr(ctx, -4, -14, 8, 7, 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      rr(ctx, -4.5, -5, 3.5, 13, 1.6); ctx.fill();
+    } else if (kind === 'peel') {
+      ctx.fillStyle = '#e8b92a';
+      ctx.beginPath();
+      ctx.moveTo(-13, 8);
+      ctx.quadraticCurveTo(-6, -14, 1, -2);
+      ctx.quadraticCurveTo(4, -12, 12, 6);
+      ctx.quadraticCurveTo(0, 13, -13, 8);
+      ctx.fill();
+      ctx.fillStyle = '#fff3b0';
+      ctx.beginPath();
+      ctx.moveTo(-9, 7);
+      ctx.quadraticCurveTo(-3, -4, 0, 1);
+      ctx.quadraticCurveTo(3, -5, 8, 6);
+      ctx.quadraticCurveTo(0, 10, -9, 7);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  var JUMP_BTN = { x: 24, y: 596, w: 90, h: 90 };
+
+  function drawJumpBtn(ctx, s, t) {
+    if (s.phase !== 'run' && s.phase !== 'ready') return;
+    var b = JUMP_BTN;
+    var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+    var on = s.phase === 'run' && s.jumpT > 0;
+
+    ctx.save();
+    ctx.shadowColor = 'rgba(38,56,80,0.16)';
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = on ? 'rgba(255,255,255,0.97)' : 'rgba(255,255,255,0.82)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, b.w / 2, 0, TAU);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = on ? 'rgba(226,101,63,0.55)' : 'rgba(46,64,90,0.12)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(cx, cy, b.w / 2 - 0.8, 0, TAU);
+    ctx.stroke();
+
+    // 向上的箭头
+    ctx.strokeStyle = on ? '#e2653f' : '#4a5668';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 9);
+    ctx.lineTo(cx, cy - 13);
+    ctx.moveTo(cx - 10, cy - 3);
+    ctx.lineTo(cx, cy - 15);
+    ctx.lineTo(cx + 10, cy - 3);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
+
+    ctx.fillStyle = on ? '#e2653f' : 'rgba(74,86,104,0.72)';
+    ctx.font = '800 10px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.fillText('空格', cx, cy + 28);
+    ctx.textAlign = 'left';
+  }
+
+  function drawItems(ctx, s, t) {
+    for (var i = 0; i < ITEM_SLOTS.length; i++) {
+      var sl = ITEM_SLOTS[i];
+      var kind = s.items[i];
+      var look = kind ? ITEM_LOOK[kind] : null;
+
+      ctx.fillStyle = kind ? 'rgba(255,255,255,0.94)' : 'rgba(255,255,255,0.62)';
+      rr(ctx, sl.x, sl.y, sl.w, sl.h, 16);
+      ctx.fill();
+      ctx.strokeStyle = kind ? 'rgba(46,64,90,0.12)' : 'rgba(46,64,90,0.16)';
+      ctx.lineWidth = 1.5;
+      rr(ctx, sl.x + 0.75, sl.y + 0.75, sl.w - 1.5, sl.h - 1.5, 15);
+      ctx.stroke();
+
+      if (look) {
+        ctx.strokeStyle = 'rgba(226,101,63,0.16)';
+        ctx.lineWidth = 2;
+        rr(ctx, sl.x + 1, sl.y + 1, sl.w - 2, sl.h - 2, 15);
+        ctx.stroke();
+        itemIcon(ctx, kind, sl.x + sl.w / 2, sl.y + sl.h / 2, 1);
+        ctx.fillStyle = P.ink3;
+        ctx.font = '700 10px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillText(look.name, sl.x + sl.w / 2, sl.y + sl.h - 6);
+        ctx.textAlign = 'left';
+      } else {
+        ctx.fillStyle = 'rgba(120,134,154,0.35)';
+        ctx.font = '800 20px ' + FONT;
+        ctx.textAlign = 'center';
+        ctx.fillText('+', sl.x + sl.w / 2, sl.y + sl.h / 2 + 7);
+        ctx.textAlign = 'left';
+      }
+
+      // 键位提示
+      ctx.fillStyle = 'rgba(46,64,90,0.07)';
+      rr(ctx, sl.x + sl.w / 2 - 10, sl.y - 20, 20, 17, 6);
+      ctx.fill();
+      ctx.fillStyle = P.ink3;
+      ctx.font = '800 11px ' + FONT;
+      ctx.textAlign = 'center';
+      ctx.fillText(String(i + 1), sl.x + sl.w / 2, sl.y - 8);
+      ctx.textAlign = 'left';
+    }
+  }
+
+  /* ---------------- 障碍提示 ---------------- */
+  function drawObstacleHint(ctx, s, t) {
+    if (s.phase !== 'run' || s.jumpT > 0) return;
+    var next = null;
+    for (var i = 0; i < s.obstacles.length; i++) {
+      var o = s.obstacles[i];
+      if (!o.done && o.x > s.distance) { next = o; break; }
+    }
+    if (!next) return;
+    var d = next.x - s.distance;
+    if (d > 48) return;
+
+    var urgent = d < 16;
+    var w = 268, h = 54, x = VW / 2 - w / 2, y = 128;
+    var a = clamp((48 - d) / 22, 0, 1);
+    ctx.globalAlpha = a;
+    card(ctx, x, y, w, h, 16, urgent ? 0.97 : 0.86);
+
+    // 警示三角
+    var ix = x + 26, iy = y + 27;
+    ctx.fillStyle = urgent ? '#e8523f' : '#f0a03c';
+    ctx.beginPath();
+    ctx.moveTo(ix, iy - 12);
+    ctx.lineTo(ix + 12, iy + 10);
+    ctx.lineTo(ix - 12, iy + 10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.font = '800 13px ' + FONT;
+    ctx.textAlign = 'center';
+    ctx.fillText('!', ix, iy + 7);
+
+    ctx.textAlign = 'left';
+    ctx.fillStyle = P.ink;
+    ctx.font = '800 15px ' + FONT;
+    ctx.fillText('障碍 ' + Math.round(d) + 'm', x + 50, y + 24);
+    ctx.fillStyle = urgent ? '#e8523f' : P.ink3;
+    ctx.font = '700 12px ' + FONT;
+    ctx.fillText(urgent ? '空格 —— 现在跳！' : '空格 跳过', x + 50, y + 42);
+    ctx.globalAlpha = 1;
+  }
+
+  /* ---------------- 状态特效：加速 / 干扰 ---------------- */
+  function drawFx(ctx, s, t) {
+    if (s.jamT > 0) {
+      var g = ctx.createRadialGradient(VW / 2, VH / 2, 150, VW / 2, VH / 2, 760);
+      g.addColorStop(0, 'rgba(138,107,255,0)');
+      g.addColorStop(1, 'rgba(138,107,255,0.42)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, VW, VH);
+
+      var a = clamp(s.jamT, 0, 1);
+      ctx.globalAlpha = 0.75 + 0.25 * a;
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 26px ' + FONT;
+      ctx.lineWidth = 5;
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = 'rgba(110,80,220,0.9)';
+      ctx.strokeText('按键错乱 · 改用 ↑ ↓ 交替', VW / 2, 96);
+      ctx.fillText('按键错乱 · 改用 ↑ ↓ 交替', VW / 2, 96);
+      ctx.textAlign = 'left';
+      ctx.globalAlpha = 1;
+    }
+    if (s.boostT > 0) {
+      var p = clamp(s.boostT / global.Logic.C.BOOST_TIME, 0, 1);
+      var bx = 478, by = 80;
+      pill(ctx, bx, by, 176, 34, 17, 'rgba(255,255,255,0.9)');
+      ctx.fillStyle = '#f5a623';
+      ctx.beginPath();
+      ctx.moveTo(bx + 22, by + 9); ctx.lineTo(bx + 14, by + 19); ctx.lineTo(bx + 20, by + 19);
+      ctx.lineTo(bx + 17, by + 26); ctx.lineTo(bx + 27, by + 16); ctx.lineTo(bx + 20, by + 16);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = P.ink;
+      ctx.font = '800 12px ' + FONT;
+      ctx.fillText('加速', bx + 34, by + 22);
+      pill(ctx, bx + 68, by + 13, 94, 8, 4, 'rgba(46,64,90,0.1)');
+      pill(ctx, bx + 68, by + 13, Math.max(6, 94 * p), 8, 4, '#f5a623');
+    }
+  }
+
+  /* ---------------- 起跑倒计时 ---------------- */
+  function drawCountdown(ctx, s, t) {
+    ctx.fillStyle = 'rgba(18,32,52,0.34)';
+    ctx.fillRect(0, 0, VW, VH);
+
+    var n = Math.ceil(s.cd - 0.2);
+    var frac = 1 - (s.cd - Math.floor(s.cd));
+    var label, color, size;
+
+    if (n <= 0) {
+      label = 'GO!'; color = '#2fb87f'; size = 118;
+    } else {
+      label = String(n); color = '#ffffff'; size = 132;
+    }
+
+    if (s.startAt !== null && s.phase === 'ready') {
+      // 玩家已经按下：显示判定
+      if (s.startAt > global.Logic.C.START_FALSE) {
+        label = '太早'; color = '#ff7a6b'; size = 96;
+      }
+    }
+
+    ctx.textAlign = 'center';
+    // 底衬圆盘
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = n <= 0 ? 'rgba(47,184,127,0.92)' : 'rgba(28,48,70,0.55)';
+    ctx.beginPath();
+    ctx.arc(VW / 2, 292, n <= 0 ? 96 : 92 + (1 - frac) * 8, 0, TAU);
+    ctx.fill();
+    ctx.globalAlpha = n <= 0 ? 1 : 0.55 + 0.45 * frac;
+    ctx.lineWidth = 10;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(20,34,54,0.35)';
+    ctx.font = '800 ' + size + 'px ' + FONT;
+    ctx.strokeText(label, VW / 2, 330);
+    ctx.fillStyle = color;
+    ctx.fillText(label, VW / 2, 330);
+    ctx.globalAlpha = 1;
+
+    var hint = s.startAt === null ? '按 空格 起跑' : '已就绪';
+    ctx.font = '800 24px ' + FONT;
+    var pulse = s.startAt === null ? (0.75 + 0.25 * Math.sin(t * 6)) : 1;
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = s.startAt === null ? '#ffffff' : '#9df0c8';
+    ctx.fillText(hint, VW / 2, 424);
+    ctx.globalAlpha = 1;
+
+    ctx.fillStyle = 'rgba(255,255,255,0.82)';
+    ctx.font = '700 15px ' + FONT;
+    ctx.fillText('越接近 GO 起跑，起步加速越快', VW / 2, 458);
     ctx.textAlign = 'left';
   }
 
@@ -375,9 +710,9 @@
     var colW = P0.w / 2;
     var rows = [
       { x: P0.x + 22, key: 'up', title: '喝水', on: drinkLeft, used: '这站喝过了',
-        desc: '水分补满 · 体力 +' + C.DRINK_STAMINA, accent: '#3aa6e0', tag: 'water' },
-      { x: P0.x + colW + 6, key: 'down', title: '吃东西', on: eatLeft, used: '这站吃过了',
-        desc: '体力 +' + C.EAT_STAMINA + ' · 会慢一段', accent: '#f5a623', tag: 'food' }
+        desc: '水分补满 · 得到空水瓶', accent: '#3aa6e0', tag: 'water' },
+      { x: P0.x + colW + 6, key: 'down', title: '吃香蕉', on: eatLeft, used: '这站吃过了',
+        desc: '体力 +' + C.EAT_STAMINA + ' · 得到香蕉皮', accent: '#f5a623', tag: 'food' }
     ];
 
     for (var i = 0; i < rows.length; i++) {
@@ -433,12 +768,12 @@
     ctx.fillText('节奏长跑', VW / 2, y + 108);
     ctx.fillStyle = P.ink3;
     ctx.font = '600 16px ' + FONT;
-    ctx.fillText('左右交替 · 每次间隔差不多就省力', VW / 2, y + 144);
+    ctx.fillText('和三个对手抢 1000 米 · 踩稳节奏，道具开路', VW / 2, y + 144);
 
     var rows = [
-      { icon: 'AD', title: 'A / D 交替点击', desc: '左右换着来，同侧连点会绊步' },
-      { icon: '稳', title: '保持固定的间隔', desc: '每一下隔得差不多就省体力，忽快忽慢最费劲' },
-      { icon: '水', title: '补给点按 ↑ / ↓', desc: '↑ 喝水补满水分，↓ 吃东西回体力但会慢一段' }
+      { icon: 'AD', title: 'A / D 交替点击', desc: '左右换着来，每次间隔差不多就省力' },
+      { icon: '跳', title: '空格：起跑 / 跳跃', desc: '倒计时越接近 GO 起跑越快，路上空格越过障碍' },
+      { icon: '道', title: '1 / 2 用道具', desc: '加速、干扰对手；喝水的空瓶、香蕉皮都能扔出去' }
     ];
     for (var i = 0; i < rows.length; i++) {
       var ry = y + 186 + i * 66;
@@ -464,7 +799,7 @@
     ctx.fill();
     ctx.fillStyle = '#fff';
     ctx.font = '800 20px ' + FONT;
-    ctx.fillText('按 A / D 开始', VW / 2, y + h - 59);
+    ctx.fillText('按 空格 开始', VW / 2, y + h - 59);
 
     ctx.fillStyle = 'rgba(140,153,171,1)';
     ctx.font = '600 12px ' + FONT;
@@ -477,12 +812,12 @@
     var x = 330, y = 108, w = 620, h = 508;
     card(ctx, x, y, w, h, 32, 0.97);
 
-    var g = global.Logic.grade(s.elapsed, s.collapsed);
+    var g = global.Logic.grade(s.elapsed, s.collapsed, s.finishRank || s.rank);
     ctx.textAlign = 'center';
 
     ctx.fillStyle = P.ink3;
     ctx.font = '700 15px ' + FONT;
-    ctx.fillText(s.collapsed ? '体力见底，被迫退赛' : '到达终点', VW / 2, y + 46);
+    ctx.fillText(s.collapsed ? '体力见底，被迫退赛' : ('到达终点 · 第 ' + (s.finishRank || s.rank) + ' 名'), VW / 2, y + 46);
 
     var gcol = s.collapsed ? '#8c99ab' : (g.letter === 'S' ? '#f5a623' : g.letter === 'A' ? '#43d69b' : '#5ba8e8');
     ctx.fillStyle = gcol;
@@ -497,8 +832,8 @@
       ['距离', Math.floor(s.distance) + ' m'],
       ['平均配速', global.Logic.paceText(s.elapsed, s.distance)],
       ['节奏稳定', (s.strides ? Math.round(100 * s.steady / s.strides) : 0) + '%'],
-      ['最长稳定', s.bestCombo + ''],
-      ['剩余体力上限', Math.round(s.total) + '']
+      ['跳过障碍', s.cleared + ' / ' + (s.cleared + s.hits)],
+      ['道具命中', s.shotsFired + ' 次']
     ];
     for (var i = 0; i < stats.length; i++) {
       var col = i % 2, row = Math.floor(i / 2);
@@ -529,7 +864,7 @@
 
   global.HUD = {
     VW: VW, VH: VH,
-    drawHUD: drawHUD, drawTitle: drawTitle, drawResult: drawResult,
-    GATE_PANEL: GATE_PANEL, fmtTime: fmtTime, clamp: clamp
+    drawHUD: drawHUD, drawTitle: drawTitle, drawResult: drawResult, drawCountdown: drawCountdown,
+    GATE_PANEL: GATE_PANEL, ITEM_SLOTS: ITEM_SLOTS, JUMP_BTN: JUMP_BTN, fmtTime: fmtTime, clamp: clamp
   };
 })(typeof window !== 'undefined' ? window : globalThis);

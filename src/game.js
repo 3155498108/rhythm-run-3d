@@ -11,7 +11,9 @@
   var C = Logic.C;
 
   var dpr = 1, viewScale = 1, hudScale = 1, ox = 0, oy = 0;
-  var s, view, screen = 'title';
+  var s, view;
+
+  var ITEM_NAME = { boost: '加速', jam: '干扰器', bottle: '空水瓶', peel: '香蕉皮' };
 
   /* ---------------- 音效 ---------------- */
   var Sfx = {
@@ -37,7 +39,7 @@
       o.start(t0); o.stop(t0 + dur + 0.02);
     },
     step: function () { this.tone(150 + Math.random() * 24, 0.07, 'triangle', 0.045, 90); },
-    perfect: function (combo) {
+    steady: function (combo) {
       var base = 720 + Math.min(combo, 18) * 22;
       this.tone(base, 0.1, 'sine', 0.05);
       this.tone(base * 1.5, 0.14, 'sine', 0.032);
@@ -49,6 +51,12 @@
       var self = this;
       setTimeout(function () { self.tone(260, 0.07, 'square', 0.035); }, 130);
     },
+    jump: function () { this.tone(520, 0.12, 'sine', 0.042, 900); },
+    thud: function () { this.tone(120, 0.2, 'square', 0.055, 60); },
+    slip: function () { this.tone(660, 0.28, 'sawtooth', 0.04, 180); },
+    zap: function () { this.tone(1200, 0.16, 'square', 0.035, 300); },
+    beep: function (f) { this.tone(f, 0.12, 'square', 0.05); },
+    boost: function () { this.tone(300, 0.34, 'sine', 0.05, 1100); },
     finish: function () {
       var self = this, notes = [523, 659, 784, 1046];
       notes.forEach(function (n, i) {
@@ -66,7 +74,6 @@
     s = Logic.create();
     resetView();
     Scene3D.reset();
-    screen = 'title';
   }
 
   /* ---------------- 尺寸 ---------------- */
@@ -121,7 +128,7 @@
         case 'stride':
           Scene3D.spawnDust(x - 0.2, (Math.random() - 0.5) * 0.4);
           if (e.steady) {
-            Sfx.perfect(e.combo);
+            Sfx.steady(e.combo);
             Scene3D.spawnSparks(x + 0.1, 1.1 + Math.random() * 0.4, 0, e.combo % 6 === 0 ? 4 : 2);
           } else {
             Sfx.step();
@@ -134,10 +141,84 @@
           Scene3D.shake(0.28);
           popup('错步！', '#e05243', 22);
           break;
-        case 'nofood':
-          if (e.reason === 'used') popup('这站已经用过了', 'rgba(90,105,126,0.92)', 16);
-          else popup('附近没有补给点', 'rgba(90,105,126,0.92)', 16);
+
+        case 'countdown': Sfx.beep(660); break;
+        case 'startpress':
+          Sfx.beep(880);
+          if (e.cd > C.START_FALSE) popup('太早了！', '#e05243', 20);
           break;
+        case 'go':
+          if (e.quality > 0.75) popup('完美起步！', '#2fb87f', 26);
+          else if (e.quality > 0.4) popup('不错的起步', '#43d69b', 20);
+          else popup('起步有点慢', 'rgba(90,105,126,0.92)', 18);
+          Sfx.beep(1180);
+          break;
+        case 'false_start':
+          popup('抢跑，等一下！', '#e05243', 22);
+          Sfx.stumble();
+          break;
+        case 'late_start':
+          popup('没按空格，慢起步', 'rgba(90,105,126,0.92)', 17);
+          break;
+
+        case 'jump':
+          Sfx.jump();
+          Scene3D.spawnDust(x, (Math.random() - 0.5) * 0.5);
+          break;
+        case 'clear':
+          Scene3D.spawnSparks(x, 0.9, 0, 3);
+          break;
+        case 'hit':
+          Sfx.thud();
+          Scene3D.shake(0.45);
+          popup(e.kind === 'puddle' ? '踩水坑了！' : '撞到障碍！', '#e05243', 22);
+          break;
+        case 'slip':
+          Sfx.slip();
+          Scene3D.shake(0.35);
+          popup('踩到香蕉皮！', '#f5a623', 21);
+          break;
+        case 'jammed':
+          Sfx.zap();
+          Scene3D.shake(0.4);
+          popup('按键被打乱！', '#8a6bff', 23);
+          break;
+        case 'hitbottle':
+          Sfx.thud();
+          Scene3D.shake(0.35);
+          popup('被水瓶砸中！', '#3aa6e0', 21);
+          break;
+        case 'incoming':
+          popup('小心！', '#e05243', 19);
+          break;
+
+        case 'item':
+          popup('获得 ' + ITEM_NAME[e.item], '#5b7cfa', 19);
+          break;
+        case 'itemfull':
+          popup('道具满了', 'rgba(90,105,126,0.92)', 16);
+          break;
+        case 'boost':
+          Sfx.boost();
+          popup('加速！', '#2fb87f', 24);
+          Scene3D.spawnSparks(x + 0.4, 1.2, 0, 6);
+          break;
+        case 'peel':
+          popup('放下香蕉皮', '#f5a623', 18);
+          break;
+        case 'throw':
+          Sfx.jump();
+          break;
+        case 'notarget':
+          popup('前面没有对手', 'rgba(90,105,126,0.92)', 16);
+          break;
+        case 'hitrival':
+          Sfx.zap();
+          popup(e.mode === 'bottle' ? '命中！' + e.rival.name + '被砸中' : e.rival.name + '节奏被打乱',
+            '#2fb87f', 20);
+          Scene3D.spawnSparks(e.rival.dist, 1.4, 0, 6);
+          break;
+
         case 'drink': Sfx.drink(); break;
         case 'eat': Sfx.eat(); break;
         case 'drank':
@@ -151,11 +232,9 @@
           popup('口渴了！', '#3aa6e0', 19);
           break;
         case 'finish':
-          screen = 'over';
           Sfx.finish();
           break;
         case 'collapse':
-          screen = 'over';
           Scene3D.shake(0.5);
           Sfx.fail();
           break;
@@ -166,23 +245,57 @@
 
   /* ---------------- 输入 ---------------- */
   function stride(side) {
-    if (screen === 'over') return;
+    if (s.phase === 'idle') { Logic.space(s); Sfx.init(); return; }
+    if (s.phase !== 'run') return;
     Sfx.init();
-    if (screen === 'title') screen = 'run';
     Logic.press(s, side);
   }
   function act(kind) {
-    if (screen !== 'run') return;
+    if (s.phase !== 'run') return;
     Logic.startAction(s, kind);
+  }
+  function pressSpace() {
+    Sfx.init();
+    var r = Logic.space(s);
+    if (r === 'jump') Sfx.jump();
   }
 
   window.addEventListener('keydown', function (ev) {
     var k = ev.key;
     if (ev.repeat) return;
-    if (k === 'a' || k === 'A' || k === 'ArrowLeft') { ev.preventDefault(); stride('L'); return; }
-    if (k === 'd' || k === 'D' || k === 'ArrowRight') { ev.preventDefault(); stride('R'); return; }
-    if (k === 'ArrowUp' || k === 'w' || k === 'W') { ev.preventDefault(); act('drink'); return; }
-    if (k === 'ArrowDown' || k === 's' || k === 'S') { ev.preventDefault(); act('eat'); return; }
+
+    var jammed = s && s.jamT > 0;
+
+    if (k === ' ' || k === 'Spacebar' || k === 'Enter') {
+      ev.preventDefault(); pressSpace(); return;
+    }
+    if (k === '1' || k === '2') {
+      ev.preventDefault();
+      if (s.phase === 'run') Logic.useItem(s, k === '1' ? 0 : 1);
+      return;
+    }
+    if (k === 'a' || k === 'A' || k === 'ArrowLeft') {
+      ev.preventDefault();
+      if (!jammed) stride('L');
+      return;
+    }
+    if (k === 'd' || k === 'D' || k === 'ArrowRight') {
+      ev.preventDefault();
+      if (!jammed) stride('R');
+      return;
+    }
+    if (k === 'ArrowUp') {
+      ev.preventDefault();
+      if (jammed) stride('L'); else act('drink');
+      return;
+    }
+    if (k === 'ArrowDown') {
+      ev.preventDefault();
+      if (jammed) stride('R'); else act('eat');
+      return;
+    }
+    if (k === 'w' || k === 'W') { ev.preventDefault(); act('drink'); return; }
+    if (k === 's' || k === 'S') { ev.preventDefault(); act('eat'); return; }
     if (k === 'r' || k === 'R') { ev.preventDefault(); reset(); Sfx.init(); return; }
     if (k === 'm' || k === 'M') {
       Sfx.init();
@@ -195,8 +308,27 @@
   hudCanvas.addEventListener('pointerdown', function (ev) {
     ev.preventDefault();
     var pt = toLogical(ev.clientX, ev.clientY);
-    if (screen === 'over') { reset(); Sfx.init(); return; }
-    if (Logic.activeGate(s)) {
+
+    if (s.phase === 'idle') { pressSpace(); return; }
+    if (s.phase === 'over') { reset(); Sfx.init(); return; }
+
+    // 跳跃 / 起跑按钮
+    var jb = HUD.JUMP_BTN;
+    var jdx = pt.x - (jb.x + jb.w / 2), jdy = pt.y - (jb.y + jb.h / 2);
+    if (jdx * jdx + jdy * jdy < (jb.w / 2 + 6) * (jb.w / 2 + 6)) { pressSpace(); return; }
+
+    // 道具槽
+    var slots = HUD.ITEM_SLOTS;
+    for (var i = 0; i < slots.length; i++) {
+      var sp = slots[i];
+      if (pt.x > sp.x && pt.x < sp.x + sp.w && pt.y > sp.y && pt.y < sp.y + sp.h) {
+        if (s.phase === 'run') Logic.useItem(s, i);
+        return;
+      }
+    }
+
+    // 补给条
+    if (s.phase === 'run' && Logic.activeGate(s) && !(s.jamT > 0)) {
       var gp = HUD.GATE_PANEL;
       if (pt.x > gp.x && pt.x < gp.x + gp.w &&
           pt.y > gp.y - 26 && pt.y < gp.y + gp.h) {
@@ -204,7 +336,8 @@
         return;
       }
     }
-    stride(pt.x < VW / 2 ? 'L' : 'R');
+
+    if (s.phase === 'run') stride(pt.x < VW / 2 ? 'L' : 'R');
   }, { passive: false });
 
   document.addEventListener('visibilitychange', function () {
@@ -213,11 +346,10 @@
 
   /* ---------------- 循环 ---------------- */
   function updateView(dt, now) {
-    if (s.started && !s.finished && !s.collapsed) {
-      // 步频跟着实际速度走，约 2.2 米一步、两步一个循环
+    if (s.phase === 'run') {
       var cycleRate = (s.speed / 3.6) / 2.2 / 2;
       if (s.speed > 0.6) view.phase += dt * cycleRate * Math.PI * 2;
-    } else if (!s.started) {
+    } else if (s.phase === 'idle') {
       view.phase += dt * 1.4;
     }
     for (var i = view.popups.length - 1; i >= 0; i--) {
@@ -235,6 +367,7 @@
     if (dt < 0) dt = 0;
     lastNow = now;
 
+    var prevPhase = s.phase;
     Logic.tick(s, now);
     handleEvents();
     updateView(dt, now);
@@ -247,11 +380,12 @@
     ctx.setTransform(hudScale, 0, 0, hudScale, 0, 0);
     ctx.clearRect(0, 0, VW, VH);
 
-    if (screen === 'title') {
+    if (s.phase === 'idle') {
       HUD.drawTitle(ctx, now);
     } else {
       HUD.drawHUD(ctx, s, view, now);
-      if (screen === 'over') HUD.drawResult(ctx, s, now);
+      if (s.phase === 'ready') HUD.drawCountdown(ctx, s, now);
+      if (s.phase === 'over') HUD.drawResult(ctx, s, now);
     }
 
     requestAnimationFrame(frame);

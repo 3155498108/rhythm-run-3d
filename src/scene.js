@@ -12,10 +12,10 @@
 
   /* ---------- 便于调参的相机配置 ---------- */
   var CAM = {
-    backX: -1.2,   // 相机在跑者后方
-    height: 2.42,
-    side: 8.8,    // z 距离
-    aimX: 2.6,     // 注视点在跑者前方
+    backX: -2.6,   // 相机在跑者后方
+    height: 2.46,
+    side: 8.4,    // z 距离
+    aimX: 1.8,     // 注视点在跑者前方
     aimY: 1.05,
     aimZ: 0.0,
     fov: 42
@@ -165,11 +165,11 @@
   function skyTexture() {
     return canvasTex(64, 512, function (g, w, h) {
       var grd = g.createLinearGradient(0, 0, 0, h);
-      grd.addColorStop(0.00, '#4fb2e8');
-      grd.addColorStop(0.35, '#7fcdf1');
-      grd.addColorStop(0.62, '#bfe6f8');
-      grd.addColorStop(0.80, '#e4f4fd');
-      grd.addColorStop(1.00, '#d6ecf8');
+      grd.addColorStop(0.00, '#69bde9');
+      grd.addColorStop(0.28, '#8ed2f2');
+      grd.addColorStop(0.55, '#bfe6f9');
+      grd.addColorStop(0.78, '#e2f3fd');
+      grd.addColorStop(1.00, '#d8eef9');
       g.fillStyle = grd;
       g.fillRect(0, 0, w, h);
     });
@@ -182,7 +182,8 @@
 
   /* ================= 场景 ================= */
   var scene, camera, renderer, sunLight, hemi;
-  var runner, R = {};
+  var runner, playerRig, rivalRigs = [];
+  var obstacleMeshes = [], bananaPool = [], shotPool = [];
   var dustPool = [], sparkPool = [], ringPool = [];
   var treeList = [], bushList = [], gateGroups = [];
   var backdrop, sunSprite, cloudGroup;
@@ -224,6 +225,9 @@
     buildCrowd();
     buildGates();
     buildRunner();
+    buildRivals();
+    buildObstacles();
+    buildProps();
     buildPools();
 
     return { scene: scene, camera: camera, renderer: renderer };
@@ -232,19 +236,15 @@
   /* ---------- 天空 ---------- */
   function buildSky() {
     var tex = skyTexture();
-    var m = new THREE.MeshBasicMaterial({ map: tex, fog: false, depthWrite: false });
-    backdrop = new THREE.Mesh(new THREE.PlaneGeometry(7000, 3000), m);
-    backdrop.position.set(0, 250, -460);
-    backdrop.renderOrder = -5;
-    scene.add(backdrop);
+    scene.background = tex;
 
     // 太阳
     var sunTex = radialTexture('rgba(255,250,222,1)', 'rgba(255,220,140,0)');
     sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
       map: sunTex, transparent: true, depthWrite: false, fog: false, opacity: 0.42
     }));
-    sunSprite.position.set(0, 66, -450);
-    sunSprite.scale.set(300, 300, 1);
+    sunSprite.position.set(0, 96, -418);
+    sunSprite.scale.set(190, 190, 1);
     scene.add(sunSprite);
 
     // 云
@@ -595,22 +595,23 @@
     return m;
   }
 
-  function buildRunner() {
-    runner = new THREE.Group();
-    scene.add(runner);
+  function buildRig(opt) {
+    opt = opt || {};
+    var R = {};
+    var root = new THREE.Group();
 
-    var skin = mat(0xf9cda8, { roughness: 0.72 });
-    var jersey = mat(0xff7a6b, { roughness: 0.78 });
-    var shorts = mat(0x3f526d, { roughness: 0.85 });
-    var hairMat = mat(0x342c3e, { roughness: 0.72 });
-    var shoeMat = mat(0xffffff, { roughness: 0.55 });
-    var shoeAcc = mat(0xff7a6b, { roughness: 0.55 });
-    var bandMat = mat(0xffcf5c, { roughness: 0.7 });
+    var skin = mat(opt.skin || 0xf9cda8, { roughness: 0.72 });
+    var jersey = mat(opt.jersey || 0xff7a6b, { roughness: 0.78 });
+    var shorts = mat(opt.shorts || 0x3f526d, { roughness: 0.85 });
+    var hairMat = mat(opt.hair || 0x342c3e, { roughness: 0.72 });
+    var shoeMat = mat(opt.shoe || 0xffffff, { roughness: 0.55 });
+    var shoeAcc = mat(opt.shoeAcc || 0xff7a6b, { roughness: 0.55 });
+    var bandMat = mat(opt.band || 0xffcf5c, { roughness: 0.7 });
 
     // 髋
     var hips = new THREE.Group();
     hips.position.y = 0.80;
-    runner.add(hips);
+    root.add(hips);
     R.hips = hips;
 
     // 躯干
@@ -817,11 +818,150 @@
     );
     R.shadowBlob.rotation.x = -Math.PI / 2;
     R.shadowBlob.position.y = 0.02;
-    runner.add(R.shadowBlob);
+    root.add(R.shadowBlob);
+    R.root = root;
+    return R;
+  }
+
+  function buildRunner() {
+    playerRig = buildRig({});
+    runner = playerRig.root;
+    scene.add(runner);
+  }
+
+  /* ---------- 对手 ---------- */
+  var RIVAL_LOOK = [
+    { jersey: 0x5b7cfa, shorts: 0x2c3b6b, band: 0xffffff, hair: 0x272a38 },
+    { jersey: 0xf5a623, shorts: 0x5a4a2c, band: 0xfff3d6, hair: 0x4a2f22 },
+    { jersey: 0x35b58c, shorts: 0x2f4a45, band: 0xffe9a8, hair: 0x2b2b2b }
+  ];
+
+  function buildRivals() {
+    for (var i = 0; i < 3; i++) {
+      var rig = buildRig(RIVAL_LOOK[i]);
+      rig.root.visible = false;
+      scene.add(rig.root);
+      rivalRigs.push(rig);
+    }
+  }
+
+  /* ---------- 障碍物 ---------- */
+  function buildObstacles() {
+    var white = mat(0xffffff, { roughness: 0.6 });
+    var red = mat(0xe8523f, { roughness: 0.7 });
+    var orange = mat(0xff8a3d, { roughness: 0.7 });
+    var wood = mat(0xd8dde6, { roughness: 0.8 });
+
+    for (var k = 0; k < 3; k++) {
+      var grp = new THREE.Group();
+
+      // 跨栏
+      var hurdle = new THREE.Group();
+      for (var sg = -1; sg <= 1; sg += 2) {
+        var post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.78, 8), wood);
+        post.position.set(0, 0.39, sg * 0.72);
+        post.castShadow = true;
+        hurdle.add(post);
+        var foot = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.14), red);
+        foot.position.set(0, 0.03, sg * 0.72);
+        hurdle.add(foot);
+      }
+      var bar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 1.5), white);
+      bar.position.y = 0.66;
+      bar.castShadow = true;
+      hurdle.add(bar);
+      for (var rb = -1; rb <= 1; rb++) {
+        var stripe = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.17, 0.18), red);
+        stripe.position.set(0, 0.66, rb * 0.45);
+        hurdle.add(stripe);
+      }
+      grp.add(hurdle);
+
+      // 路障锥
+      var cone = new THREE.Group();
+      var body = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.62, 12), orange);
+      body.position.y = 0.33;
+      body.castShadow = true;
+      cone.add(body);
+      var ring = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, 0.1, 12), white);
+      ring.position.y = 0.3;
+      cone.add(ring);
+      var base = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.46), orange);
+      base.position.y = 0.03;
+      cone.add(base);
+      cone.visible = false;
+      grp.add(cone);
+
+      // 水坑
+      var puddle = new THREE.Group();
+      var water = new THREE.Mesh(
+        new THREE.CircleGeometry(0.85, 18),
+        new THREE.MeshStandardMaterial({ color: 0x7cc4e8, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 })
+      );
+      water.rotation.x = -Math.PI / 2;
+      water.scale.set(1.5, 1, 1);
+      water.position.y = 0.02;
+      puddle.add(water);
+      var rim = new THREE.Mesh(
+        new THREE.RingGeometry(1.22, 1.35, 20),
+        new THREE.MeshBasicMaterial({ color: 0x5aa8d0, transparent: true, opacity: 0.5 })
+      );
+      rim.rotation.x = -Math.PI / 2;
+      rim.scale.set(1.5, 1, 1);
+      rim.position.y = 0.025;
+      puddle.add(rim);
+      puddle.visible = false;
+      grp.add(puddle);
+
+      grp.userData.hurdle = hurdle;
+      grp.userData.cone = cone;
+      grp.userData.puddle = puddle;
+      grp.visible = false;
+      scene.add(grp);
+      obstacleMeshes.push(grp);
+    }
+  }
+
+  /* ---------- 香蕉皮 / 投掷物 ---------- */
+  function buildProps() {
+    var peelMat = mat(0xffd93d, { roughness: 0.75 });
+    var peelTip = mat(0xd9a916, { roughness: 0.8 });
+    for (var i = 0; i < 10; i++) {
+      var g = new THREE.Group();
+      var core = new THREE.Mesh(new THREE.SphereGeometry(0.1, 10, 8), peelMat);
+      core.scale.set(1, 0.34, 1);
+      core.position.y = 0.04;
+      g.add(core);
+      for (var k = 0; k < 3; k++) {
+        var arm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.035, 0.075), peelMat);
+        var ang = k * 2.1;
+        arm.position.set(Math.cos(ang) * 0.12, 0.03, Math.sin(ang) * 0.12);
+        arm.rotation.y = -ang;
+        arm.rotation.z = 0.22;
+        g.add(arm);
+        var tip = new THREE.Mesh(new THREE.SphereGeometry(0.032, 6, 6), peelTip);
+        tip.position.set(Math.cos(ang) * 0.22, 0.02, Math.sin(ang) * 0.22);
+        g.add(tip);
+      }
+      g.visible = false;
+      scene.add(g);
+      bananaPool.push(g);
+    }
+
+    for (var j = 0; j < 4; j++) {
+      var m = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.055, 0.055, 0.2, 10),
+        new THREE.MeshStandardMaterial({ color: 0x8ed0f2, roughness: 0.3 })
+      );
+      m.castShadow = true;
+      m.visible = false;
+      scene.add(m);
+      shotPool.push(m);
+    }
   }
 
   /* ---------- 姿态 ---------- */
-  function applyPose(s, phase, now, dt) {
+  function applyPose(R, s, phase, now, dt) {
     var spd = clamp(s.speed / 26, 0, 1.2);
     var running = s.speed > 1.2;
     var ph = phase;
@@ -896,6 +1036,17 @@
     R.ribbon.rotation.y = flap * 0.7;
 
     R.shadowBlob.scale.setScalar(1 + spd * 0.18);
+
+    // 被干扰 / 打滑时的摇晃
+    var wob = 0;
+    if (s.jamT > 0) wob = 0.11;
+    if (s.slipT > 0) wob = 0.2;
+    if (wob > 0) {
+      R.torso.rotation.z += Math.sin(now * 24) * wob;
+      R.head.rotation.z += Math.sin(now * 19) * wob * 0.8;
+      R.armL.shoulder.rotation.z += Math.sin(now * 21) * wob;
+      R.armR.shoulder.rotation.z -= Math.sin(now * 21) * wob;
+    }
   }
 
   /* ---------- 粒子池 ---------- */
@@ -981,9 +1132,24 @@
 
   /* ---------- 每帧更新 ---------- */
   function update(s, view, dt, now) {
+    var JUMP_H = 0.66;
     runner.position.x = s.distance;
     runner.position.z = 0;
-    applyPose(s, view.phase, now, dt);
+    runner.position.y = (s.jumpY || 0) * JUMP_H;
+    applyPose(playerRig, s, view.phase, now, dt);
+
+    // 对手
+    for (var ri = 0; ri < rivalRigs.length; ri++) {
+      var rr = s.rivals[ri];
+      var rg = rivalRigs[ri];
+      if (!rr) { rg.root.visible = false; continue; }
+      var dv = rr.dist - s.distance;
+      rg.root.visible = rr.dist > -24 && dv < 62;
+      rg.root.position.x = rr.dist;
+      rg.root.position.z = rr.z;
+      rg.root.position.y = (rr.jumpY || 0) * JUMP_H;
+      if (rg.root.visible) applyPose(rg, rr, rr.phase, now, dt);
+    }
 
     // 摄像机
     var pullTarget = s.finished ? 3.4 : 0;
@@ -1000,7 +1166,7 @@
       camera.position.y += (Math.random() - 0.5) * shakeAmt;
       shakeAmt *= Math.exp(-dt * 7);
     }
-    var aimTarget = s.started ? 0 : 1.9;
+    var aimTarget = s.phase === 'idle' ? 1.9 : 0;
     titleAim += (aimTarget - titleAim) * (1 - Math.exp(-dt * 3));
     camera.lookAt(camX + CAM.aimX + CAM.backX * -1 + titleAim, CAM.aimY, CAM.aimZ);
 
@@ -1010,9 +1176,8 @@
     sunLight.target.updateMatrixWorld();
 
     // 天空跟随
-    backdrop.position.x = camX;
-    sunSprite.position.x = camX + 330;
-    sunSprite.position.y = 120;
+    sunSprite.position.x = camX + 250;
+    sunSprite.position.y = 104;
     cloudGroup.position.x = camX * 0.94;
 
     // 树回收
@@ -1083,6 +1248,45 @@
         p.mesh.material.opacity = k2;
       }
     }
+    // 障碍物
+    for (i = 0; i < obstacleMeshes.length; i++) {
+      var og = obstacleMeshes[i];
+      var o = s.obstacles[i];
+      if (!o) { og.visible = false; continue; }
+      var od = o.x - s.distance;
+      og.visible = !o.done && od > -8 && od < 64;
+      if (!og.visible) continue;
+      og.position.set(o.x, 0, 0);
+      og.userData.hurdle.visible = o.kind === 'hurdle';
+      og.userData.cone.visible = o.kind === 'cone';
+      og.userData.puddle.visible = o.kind === 'puddle';
+    }
+
+    // 香蕉皮
+    for (i = 0; i < bananaPool.length; i++) {
+      var bm = bananaPool[i];
+      var bb = s.bananas[i];
+      if (!bb || bb.used) { bm.visible = false; continue; }
+      var bd = bb.x - s.distance;
+      bm.visible = bd > -14 && bd < 40;
+      if (!bm.visible) continue;
+      bm.position.set(bb.x, 0.02, 0.15);
+      bm.rotation.y = now * 0.6 + i;
+    }
+
+    // 飞行中的投掷物
+    for (i = 0; i < shotPool.length; i++) {
+      var sm = shotPool[i];
+      var sh = s.shots[i];
+      if (!sh) { sm.visible = false; continue; }
+      sm.visible = true;
+      var prog = 1 - sh.t / sh.total;
+      var fromX = sh.from !== undefined ? sh.from : s.distance;
+      var toX = sh.to === 'player' ? s.distance : (sh.target ? sh.target.dist : fromX);
+      sm.position.set(fromX + (toX - fromX) * prog, 0.9 + Math.sin(prog * Math.PI) * 0.85, 0.1);
+      sm.rotation.z = prog * 9;
+    }
+
     for (i = 0; i < ringPool.length; i++) {
       var rg = ringPool[i];
       if (rg.life > 0) {
@@ -1116,6 +1320,11 @@
 
   function reset() {
     runner.position.x = 0;
+    runner.position.y = 0;
+    for (var q = 0; q < rivalRigs.length; q++) rivalRigs[q].root.visible = false;
+    for (var q2 = 0; q2 < bananaPool.length; q2++) bananaPool[q2].visible = false;
+    for (var q3 = 0; q3 < shotPool.length; q3++) shotPool[q3].visible = false;
+    for (var q4 = 0; q4 < obstacleMeshes.length; q4++) obstacleMeshes[q4].visible = false;
     shakeAmt = 0;
     for (var i = 0; i < dustPool.length; i++) { dustPool[i].life = 0; dustPool[i].mesh.visible = false; }
     for (var j = 0; j < sparkPool.length; j++) { sparkPool[j].life = 0; sparkPool[j].mesh.visible = false; }

@@ -1,4 +1,4 @@
-/* 数值仿真：用真实 logic.js 跑各种玩家，检查平衡 */
+/* 整场比赛仿真：稳节奏玩家 vs 三个 AI 对手 */
 const L = require('./src/logic.js');
 const C = L.C;
 
@@ -11,73 +11,78 @@ function mulberry(a) {
   };
 }
 
-function profile(kind, rnd, i) {
-  switch (kind) {
-    case 'steady': return C.IDEAL;
-    case 'human': return C.IDEAL * (1 + (rnd() - 0.5) * 0.18);
-    case 'jitter': return C.IDEAL * (1 + (rnd() - 0.5) * 0.55);
-    case 'uneven': return C.IDEAL * (i % 2 ? 1.55 : 0.62);
-    case 'fast': return C.IDEAL * 0.78;
-    case 'slow': return C.IDEAL * 1.45;
-    case 'spam': return 0.15;
-    default: return C.IDEAL;
-  }
-}
-
-function run(kind) {
+function run(kind, seed) {
   const s = L.create();
+  const rnd = mulberry(seed || 42);
   let t = 0, dt = 1 / 120;
-  let nextPress = C.IDEAL;
-  let rnd = mulberry(42);
-  let i = 0;
-  let minStamina = 100, minTotal = 100;
+  let next = 0, side = 0, i = 0;
+  let minS = 100;
 
-  while (!s.finished && !s.collapsed && t < 400) {
+  // 倒计时：按空格起步
+  s.phase = 'ready';
+  s.cd = 0.12;
+  s.startAt = 0.1;              // 接近完美起步
+
+  while (s.phase !== 'over' && t < 400) {
     t += dt;
     L.tick(s, t);
-    if (s.stamina < minStamina) minStamina = s.stamina;
-    if (s.total < minTotal) minTotal = s.total;
+    if (s.phase !== 'run') continue;
+    if (s.stamina < minS) minS = s.stamina;
 
-    const g = s.gates.find(g => s.distance >= g.d - C.GATE_AHEAD && s.distance <= g.d + C.GATE_AFTER);
-    if (g && !s.action) {
-      if (kind === 'slow' || kind === 'steady' || kind === 'fast' || kind === 'jitter' || kind === 'uneven' || kind === 'spam' || kind === 'human') {
-        // 普遍策略：水低于 70 就喝；体力低于 55 就吃
-        if (!g.drank && s.water < 70) L.startAction(s, 'drink');
-        else if (!g.ate && s.stamina < 55) L.startAction(s, 'eat');
+    // 补给：喝水优先，水够了吃香蕉
+    const g = L.activeGate(s);
+    if (g && !s.action && kind !== 'masher') {
+      if (!g.drank && s.water < 75) L.startAction(s, 'drink');
+      else if (!g.ate && s.stamina < 60) L.startAction(s, 'eat');
+    }
+
+    // 用道具：加速自己用，水里/干扰丢前面
+    if (kind !== 'masher') {
+      for (let k = 0; k < 2; k++) {
+        const it = s.items[k];
+        if (!it) continue;
+        if (it === 'boost') { if (s.boostT <= 0.2) L.useItem(s, k); }
+        else if (it === 'peel') { if (s.rivals.some(r => r.dist - s.distance > 3 && r.dist - s.distance < 14)) L.useItem(s, k); }
+        else if (L.nearestAhead(s, 40)) L.useItem(s, k);
       }
     }
 
-    if (t >= nextPress && !s.action) {
-      const iv = profile(kind, rnd, i++);
-      nextPress = t + iv + dt;
-      const side = s.lastSide === 'L' ? 'R' : 'L';
-      L.press(s, side);
-      s.events.length = 0;
+    // 跳跃：障碍到位就跳
+    if (kind !== 'masher') {
+      for (const o of s.obstacles) {
+        const d = o.x - s.distance;
+        if (d > 0.9 && d < 1.9 && s.jumpT <= 0) { L.space(s); break; }
+      }
     }
+
+    if (t >= next && !s.action) {
+      let iv = C.IDEAL;
+      if (kind === 'human') iv = C.IDEAL * (1 + (rnd() - 0.5) * 0.2);
+      else if (kind === 'jitter') iv = C.IDEAL * (1 + (rnd() - 0.5) * 0.55);
+      else if (kind === 'slow') iv = C.IDEAL * 1.4;
+      else if (kind === 'masher') iv = 0.16;
+      next = t + iv;
+      side = 1 - side;
+      L.press(s, side ? 'L' : 'R');
+    }
+    s.events.length = 0;
   }
+
   return {
-    kind, time: s.elapsed, dist: Math.round(s.distance),
-    done: s.finished, dead: s.collapsed,
-    stamina: s.stamina, total: s.total, water: s.water,
-    minStamina, minTotal,
-    steadyRate: s.strides ? 100 * s.steady / s.strides : 0,
-    bestCombo: s.bestCombo,
-    avgSpeed: s.elapsed ? s.distance / s.elapsed * 3.6 : 0
+    kind, t: s.elapsed, dist: s.distance, done: s.finished, dead: s.collapsed,
+    rank: s.finishRank || s.rank, minS,
+    rivals: s.rivals.map(r => ({
+      n: r.name, d: r.dist, ft: r.finished ? r.finishT : 0
+    })),
+    hits: s.hits, cleared: s.cleared, jumps: s.jumps, shots: s.shotsFired
   };
 }
 
-const kinds = ['steady', 'human', 'jitter', 'uneven', 'fast', 'slow', 'spam'];
-console.log('类型     用时    距离  完赛 退赛  体力  最低  上限  最低  水   稳率  连击  均速');
-for (const k of kinds) {
+for (const k of ['steady', 'human', 'jitter', 'slow', 'masher']) {
   const r = run(k);
+  const best = r.rivals.map(x => x.n + ' ' + (x.ft ? x.ft.toFixed(0) + 's' : Math.round(x.d) + 'm')).join(' / ');
   console.log(
-    r.kind.padEnd(8) +
-    `${r.time.toFixed(1).padStart(6)}s ${String(r.dist).padStart(5)}m  ` +
-    `${r.done ? 'Y' : 'n'}    ${r.dead ? 'Y' : 'n'}   ` +
-    `${r.stamina.toFixed(0).padStart(3)}  ${r.minStamina.toFixed(0).padStart(3)}  ` +
-    `${r.total.toFixed(0).padStart(3)}  ${r.minTotal.toFixed(0).padStart(3)}  ` +
-    `${r.water.toFixed(0).padStart(3)}  ` +
-    `${r.steadyRate.toFixed(0).padStart(3)}%  ${String(r.bestCombo).padStart(3)}  ` +
-    `${r.avgSpeed.toFixed(1)}km/h`
+    `${r.kind.padEnd(7)} ${r.done ? '完赛' : '退赛'} ${r.t.toFixed(1)}s 名次 ${r.rank} ` +
+    `体力最低 ${r.minS.toFixed(0)} 跳${r.jumps} 过${r.cleared} 撞${r.hits} 投${r.shots} | ${best}`
   );
 }
