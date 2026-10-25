@@ -10,36 +10,43 @@
     GATE_AHEAD: 58,       // 补给点提前多少米可操作
     GATE_AFTER: 12,       // 过后多少米失效
 
-    IDEAL: 0.32,          // 理想步频间隔（秒）≈ 187 步/分
-    PERFECT_LO: 0.85,     // 完美窗口（相对理想间隔的比值）
-    PERFECT_HI: 1.17,
+    IDEAL: 0.32,          // 参考步频间隔（秒）≈ 187 步/分
     DEBOUNCE: 0.085,      // 防连发
 
-    COST_BASE: 2.2,       // 每步基础体力消耗
-    PERFECT_COST: 1.0,    // 完美步伐的体力折扣
-    COMBO_STEP: 0.008,    // 每层连击的额外折扣
-    COMBO_CAP: 18,
-    COMBO_SPEED: 0.0016,  // 每层连击的速度加成
-    COMBO_SPEED_CAP: 20,
+    /* —— 节奏判定：只看「每次间隔是不是差不多」，不要求踩某个固定点 —— */
+    STEADY_DEV: 0.17,     // 间隔相对波动低于这个值就算稳
+    STEADY_WARMUP: 2,     // 起步后至少几步才开始计入
+    STEADY_MULT: 0.78,    // 稳的时候每步体力打折
+    RHYTHM_KEEP: 0.28,    // 平均间隔的更新权重
+    DEV_KEEP: 0.34,       // 波动的更新权重
 
-    REGEN: 6.2,           // 基础回复（每秒）
+    COST_BASE: 6.8,       // 每步基础体力消耗
+    COST_EXP: 0.40,       // 步频越快越费力的曲线（接近线性，避免快一点就崩）
+    EFFORT_LO: 0.62,
+    EFFORT_HI: 1.85,
+    COMBO_STEP: 0.007,    // 每层稳定连击的额外折扣
+    COMBO_CAP: 16,
+    COMBO_SPEED: 0.0014,  // 每层连击的速度加成
+    COMBO_SPEED_CAP: 18,
+
+    REGEN: 18.0,           // 基础回复（每秒）
     VMAX_MIN: 16,         // 体力上限 0 时的最高速度 km/h
     VMAX_SPAN: 10,        // 体力上限 100 时额外速度
-    TOTAL_DRAIN: 0.32,    // 体力上限每秒自然衰减
-    WATER_BASE: 0.55,     // 水分每秒基础流失
-    WATER_KMH: 0.022,     // 每 km/h 额外流失
+    TOTAL_DRAIN: 0.22,    // 体力上限每秒自然衰减
+    WATER_BASE: 0.50,     // 水分每秒基础流失
+    WATER_KMH: 0.020,     // 每 km/h 额外流失
 
-    EAT_TIME: 3.4,
-    DRINK_TIME: 1.2,
-    EAT_SLOW: 0.30,
-    DRINK_SLOW: 0.72,
-    EAT_STAMINA: 26,
+    EAT_TIME: 2.8,
+    DRINK_TIME: 1.1,
+    EAT_SLOW: 0.40,
+    DRINK_SLOW: 0.76,
+    EAT_STAMINA: 28,
     EAT_TOTAL: 4.5,
     EAT_WATER: -6,
     DRINK_STAMINA: 8,
 
     SPEED_TAU: 3.2,
-    EMPTY_SLOW: 0.42,     // 体力见底时的速度倍率
+    EMPTY_SLOW: 0.45,     // 体力见底时的速度倍率
   };
 
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -50,12 +57,13 @@
       gates.push({ d: d, drank: false, ate: false, passed: false });
     }
     return {
-      t: 0, inited: false, started: false,
+      t: 0, gt: 0, inited: false, started: false,
       distance: 0, speed: 0, target: 0,
       stamina: 100, total: 100, water: 100,
       cadence: 0, cadenceT: -99,
-      lastSide: null, lastGood: -99, lastPress: -99,
-      combo: 0, bestCombo: 0, perfect: 0, strides: 0, stumbles: 0,
+      lastSide: null, lastStride: -99, lastPress: -99,
+      ivMean: 0, ivDev: 0, rhythmWarm: 0,
+      combo: 0, bestCombo: 0, steady: 0, strides: 0, stumbles: 0,
       action: null, actionT: 0, actionDur: 0, actionGate: null,
       gates: gates,
       finished: false, collapsed: false, elapsed: 0,
@@ -78,38 +86,55 @@
   function press(s, side) {
     if (s.finished || s.collapsed) return false;
     s.started = true;
-    var gap = s.t - s.lastPress;
+    var gap = s.gt - s.lastPress;
     if (gap < C.DEBOUNCE) return false;
-    s.lastPress = s.t;
+    s.lastPress = s.gt;
 
     // 同侧连点 → 错步
     if (side === s.lastSide) {
       s.stumbles++;
       s.combo = 0;
-      s.stamina = Math.max(0, s.stamina - 2.2);
+      s.rhythmWarm = 0;
+      s.ivDev = Math.max(s.ivDev, 0.5);   // 节奏被打乱，要重新稳几拍
+      s.stamina = Math.max(0, s.stamina - 1.6);
       s.events.push({ k: 'stumble' });
       return false;
     }
 
-    var interval = (s.lastGood < 0) ? C.IDEAL : (s.t - s.lastGood);
-    var ratio = interval / C.IDEAL;
-    var effort = clamp(C.IDEAL / interval, 0.5, 2.8);
-    var perfect = ratio >= C.PERFECT_LO && ratio <= C.PERFECT_HI;
+    var interval = (s.lastStride < 0) ? C.IDEAL : (s.gt - s.lastStride);
 
+    // 停了很久（吃东西 / 发呆）再起步，节奏重新计
+    if (interval > C.IDEAL * 3.2) {
+      s.ivMean = interval;
+      s.ivDev = 0;
+      s.rhythmWarm = 0;
+    }
+
+    var ref = s.ivMean > 0 ? s.ivMean : interval;
+    var dev = Math.abs(interval - ref) / ref;      // 这次跟最近平均差多少
+    s.ivMean += (interval - s.ivMean) * C.RHYTHM_KEEP;
+    s.ivDev += (dev - s.ivDev) * C.DEV_KEEP;
+    if (!(s.ivMean > 0.05)) s.ivMean = interval;
+
+    s.rhythmWarm++;
+    var steady = s.rhythmWarm > C.STEADY_WARMUP &&
+      s.ivDev <= C.STEADY_DEV && dev <= C.STEADY_DEV * 1.8;
+
+    var effort = clamp(C.IDEAL / interval, C.EFFORT_LO, C.EFFORT_HI);
     var comboMult = 1 - Math.min(s.combo, C.COMBO_CAP) * C.COMBO_STEP;
-    var waterMult = s.water <= 0 ? 1.35 : 1;
-    var cost = C.COST_BASE * effort * effort * comboMult * waterMult;
-    if (perfect) cost *= C.PERFECT_COST;
+    var waterMult = s.water <= 0 ? 1.30 : 1;
+    var cost = C.COST_BASE * Math.pow(effort, C.COST_EXP) * comboMult * waterMult;
+    if (steady) cost *= C.STEADY_MULT;
 
     s.stamina = Math.max(0, s.stamina - cost);
     s.cadence = 1 / interval;
-    s.cadenceT = s.t;
-    s.lastGood = s.t;
+    s.cadenceT = s.gt;
+    s.lastStride = s.gt;
     s.lastSide = side;
     s.strides++;
 
-    if (perfect) {
-      s.perfect++;
+    if (steady) {
+      s.steady++;
       s.combo++;
       if (s.combo > s.bestCombo) s.bestCombo = s.combo;
     } else {
@@ -117,7 +142,7 @@
     }
 
     s.events.push({
-      k: 'stride', side: side, perfect: perfect, ratio: ratio,
+      k: 'stride', side: side, steady: steady, ratio: interval / C.IDEAL,
       combo: s.combo, cost: cost
     });
     return true;
@@ -128,9 +153,9 @@
     if (s.finished || s.collapsed) return false;
     if (s.action) return false;
     var g = activeGate(s);
-    if (!g) { s.events.push({ k: 'nofood' }); return false; }
+    if (!g) { s.events.push({ k: 'nofood', reason: 'none' }); return false; }
     var used = kind === 'eat' ? g.ate : g.drank;
-    if (used) { s.events.push({ k: 'nofood' }); return false; }
+    if (used) { s.events.push({ k: 'nofood', reason: 'used' }); return false; }
 
     if (kind === 'eat') g.ate = true; else g.drank = true;
     s.action = kind;
@@ -163,13 +188,15 @@
     if (dt < 0) dt = 0;
     s.t = now;
     if (dt > 0.06) dt = 0.06;
+    // 游戏内时间：所有节奏判定/回复都以它为准，避免掉帧时两套时间错位
+    s.gt += dt;
     if (!s.started) return;
     if (s.finished || s.collapsed) return;
 
     s.elapsed += dt;
 
     // 步频衰减
-    if (s.t - s.cadenceT > 0.42) s.cadence *= Math.exp(-dt * 2.0);
+    if (!s.action && s.gt - s.cadenceT > 0.42) s.cadence *= Math.exp(-dt * 2.0);
     if (s.cadence < 0.06) s.cadence = 0;
 
     // 补给动作
@@ -195,14 +222,14 @@
     s.water = clamp(s.water - (C.WATER_BASE + C.WATER_KMH * s.speed) * dt, 0, 100);
 
     // ---- 体力回复 ----
-    var wf = s.water <= 0 ? 0.28 : (s.water < 25 ? 0.28 + 0.72 * (s.water / 25) : 1);
+    var wf = s.water <= 0 ? 0.30 : (s.water < 25 ? 0.30 + 0.70 * (s.water / 25) : 1);
     var regen = C.REGEN * (0.42 + 0.58 * (s.total / 100)) * wf;
     s.stamina = clamp(s.stamina + regen * dt, 0, 100);
 
     // ---- 体力上限衰减 ----
     var over = Math.max(0, cadRatio - 1);
     var low = Math.max(0, (28 - s.stamina) / 28);
-    var dTot = C.TOTAL_DRAIN + 1.15 * over + 1.6 * over * over + 0.7 * low + (s.water <= 0 ? 0.30 : 0);
+    var dTot = C.TOTAL_DRAIN + 0.95 * over + 1.5 * over * over + 0.55 * low + (s.water <= 0 ? 0.28 : 0);
     s.total = clamp(s.total - dTot * dt, 0, 100);
 
     // ---- 前进 ----

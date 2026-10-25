@@ -1,5 +1,5 @@
 /* =========================================================
- *  节拍长跑 · HUD 层（2D Canvas 覆盖在 3D 画面之上）
+ *  节奏长跑 · HUD 层（2D Canvas 覆盖在 3D 画面之上）
  * ========================================================= */
 (function (global) {
   'use strict';
@@ -12,6 +12,10 @@
   function lerp(a, b, t) { return a + (b - a) * t; }
 
   function rgb(h) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]; }
+  function hexA(h, a) {
+    var c = rgb(h);
+    return 'rgba(' + c[0] + ',' + c[1] + ',' + c[2] + ',' + a + ')';
+  }
   function mix(c1, c2, t) {
     t = clamp(t, 0, 1);
     var a = rgb(c1), b = rgb(c2);
@@ -231,19 +235,18 @@
     ctx.textAlign = 'left';
     drawBar(ctx, ix, by + 176, iw, 13, s.water / 100, '#7cd4fb', '#2b9fe0', t, s.water < 16);
 
-    /* 连击 */
+    /* 稳定连击 */
     if (s.combo >= 3 && view.runnerScreen) {
       var cAlpha = clamp((s.combo - 2) / 6, 0, 1);
       ctx.globalAlpha = cAlpha;
       ctx.textAlign = 'center';
       ctx.fillStyle = '#f5a623';
       ctx.font = '800 15px ' + FONT;
-      ctx.fillText('连击 ×' + s.combo, view.runnerScreen.x, view.runnerScreen.y - 110);
+      ctx.fillText('节奏稳 ×' + s.combo, view.runnerScreen.x, view.runnerScreen.y - 110);
       ctx.textAlign = 'left';
       ctx.globalAlpha = 1;
     }
 
-    drawPace(ctx, s, view, t);
     drawGatePrompt(ctx, s, t);
     drawNextGateHint(ctx, s, t);
     drawPopups(ctx, view);
@@ -254,7 +257,7 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.font = '800 18px ' + FONT;
-      ctx.fillText('A / D 交替 · 踩准节拍', VW / 2, 636);
+      ctx.fillText('A / D 交替 · 每次间隔差不多就省力', VW / 2, 470);
       ctx.textAlign = 'left';
       ctx.globalAlpha = 1;
     }
@@ -276,56 +279,6 @@
       ctx.globalAlpha = 1;
     }
     ctx.textAlign = 'left';
-  }
-
-  function drawPace(ctx, s, view, t) {
-    var C = global.Logic.C;
-    var x0 = 392, w = 496, y = 664, h = 50;
-    card(ctx, x0, y, w, h, 18, 0.93);
-
-    var tx = x0 + 22, tw = w - 44, ty = y + 20, th = 10;
-    pill(ctx, tx, ty, tw, th, th / 2, 'rgba(46,64,90,0.12)');
-
-    var lo = C.PERFECT_LO / 1.75, hi = C.PERFECT_HI / 1.75;
-    var zx = tx + tw * lo, zw = tw * (hi - lo);
-    var zg = ctx.createLinearGradient(zx, 0, zx + zw, 0);
-    zg.addColorStop(0, 'rgba(255,209,102,0.55)');
-    zg.addColorStop(0.5, 'rgba(255,178,58,0.95)');
-    zg.addColorStop(1, 'rgba(255,209,102,0.55)');
-    ctx.fillStyle = zg;
-    rr(ctx, zx, ty - 3, zw, th + 6, 6);
-    ctx.fill();
-
-    ctx.strokeStyle = 'rgba(255,255,255,0.95)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(tx + tw / 1.75, ty - 7);
-    ctx.lineTo(tx + tw / 1.75, ty + th + 7);
-    ctx.stroke();
-
-    var r = s.lastGood < 0 ? 0 : (s.t - s.lastGood) / C.IDEAL;
-    var show = s.started && !s.finished && !s.collapsed;
-    if (show && r <= 1.75) {
-      var mx = tx + tw * (r / 1.75);
-      var inZone = r >= C.PERFECT_LO && r <= C.PERFECT_HI;
-      if (inZone) {
-        ctx.fillStyle = 'rgba(255,178,58,0.22)';
-        ctx.beginPath();
-        ctx.arc(mx, ty + th / 2, 17, 0, TAU);
-        ctx.fill();
-      }
-      ctx.fillStyle = inZone ? '#ff9b2f' : 'rgba(70,86,110,0.55)';
-      rr(ctx, mx - 4, ty - 9, 8, th + 18, 4);
-      ctx.fill();
-    } else if (show) {
-      ctx.fillStyle = 'rgba(120,134,154,0.35)';
-      rr(ctx, tx - 2, ty - 6, 7, th + 12, 3.5);
-      ctx.fill();
-    }
-
-    ctx.fillStyle = P.ink3;
-    ctx.font = '800 12px ' + FONT;
-    ctx.fillText('节拍', x0 + 22, y + 41);
   }
 
   function drawNextGateHint(ctx, s, t) {
@@ -357,84 +310,110 @@
     ctx.globalAlpha = 1;
   }
 
-  function keycap(ctx, x, y, w, h, text, active) {
-    ctx.fillStyle = active ? 'rgba(255,138,107,0.16)' : 'rgba(46,64,90,0.07)';
-    rr(ctx, x, y, w, h, 8);
+  /* 补给提示条：贴着画面底部，两个大按键提示 */
+  var GATE_PANEL = { x: 356, y: 618, w: 568, h: 86 };
+
+  function keycap(ctx, x, y, w, h, dir, active, t) {
+    rr(ctx, x, y, w, h, 11);
+    ctx.fillStyle = active ? '#ffffff' : 'rgba(255,255,255,0.55)';
     ctx.fill();
-    ctx.fillStyle = active ? '#e2653f' : P.ink3;
-    ctx.font = '800 15px ' + FONT;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(text, x + w / 2, y + h / 2 + 1);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
+
+    ctx.strokeStyle = active ? 'rgba(226,101,63,0.32)' : 'rgba(46,64,90,0.10)';
+    ctx.lineWidth = 2;
+    rr(ctx, x + 1, y + 1, w - 2, h - 2, 10);
+    ctx.stroke();
+
+    if (active) {
+      var pulse = 0.3 + 0.3 * Math.sin(t * 5);
+      ctx.strokeStyle = 'rgba(255,138,107,' + pulse + ')';
+      ctx.lineWidth = 3;
+      rr(ctx, x - 3, y - 3, w + 6, h + 6, 14);
+      ctx.stroke();
+    }
+
+    // 箭头用矢量画，比字形更清楚
+    var cx = x + w / 2, cy = y + h / 2;
+    var g = dir === 'up' ? 1 : -1;
+    ctx.strokeStyle = active ? '#e2653f' : '#a9b4c2';
+    ctx.lineWidth = 3;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, cy + 10 * g);
+    ctx.lineTo(cx, cy - 9 * g);
+    ctx.moveTo(cx - 7, cy - 2 * g);
+    ctx.lineTo(cx, cy - 10 * g);
+    ctx.lineTo(cx + 7, cy - 2 * g);
+    ctx.stroke();
+    ctx.lineCap = 'butt';
   }
 
   function drawGatePrompt(ctx, s, t) {
     var C = global.Logic.C;
     var g = global.Logic.activeGate(s);
     if (!g) return;
-    var x = 886, y = 468, w = 366, h = 176;
-    card(ctx, x, y, w, h, 20, 0.95);
 
-    ctx.fillStyle = '#ff8f6e';
-    ctx.beginPath();
-    ctx.moveTo(x + 20, y + 18);
-    ctx.lineTo(x + 20, y + 40);
-    ctx.lineTo(x + 30, y + 34);
-    ctx.lineTo(x + 40, y + 40);
-    ctx.lineTo(x + 40, y + 18);
-    ctx.closePath();
-    ctx.fill();
-    ctx.fillStyle = P.ink;
-    ctx.font = '800 19px ' + FONT;
-    ctx.fillText('补给点 ' + g.d + 'm', x + 52, y + 38);
-    ctx.fillStyle = P.ink3;
-    ctx.font = '600 12px ' + FONT;
-    ctx.textAlign = 'right';
-    ctx.fillText('路过时按', x + w - 22, y + 38);
+    var P0 = GATE_PANEL;
+    var drinkLeft = !g.drank, eatLeft = !g.ate;
+    var anyLeft = drinkLeft || eatLeft;
+
+    /* 上面的小标题 */
+    ctx.textAlign = 'center';
+    ctx.font = '800 14px ' + FONT;
+    ctx.lineWidth = 4;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = 'rgba(28,48,70,0.30)';
+    var head = anyLeft ? ('补给点 ' + g.d + 'm · 现在可以补给了') : ('补给点 ' + g.d + 'm · 这站已用过');
+    ctx.strokeText(head, VW / 2, P0.y - 14);
+    ctx.fillStyle = anyLeft ? '#ffffff' : 'rgba(255,255,255,0.78)';
+    ctx.fillText(head, VW / 2, P0.y - 14);
     ctx.textAlign = 'left';
 
-    // 喝水
-    var rowY = y + 52;
-    keycap(ctx, x + 20, rowY, 34, 34, '↑', !g.drank);
-    ctx.fillStyle = g.drank ? P.ink3 : P.ink;
-    ctx.font = '700 15px ' + FONT;
-    ctx.fillText('喝水', x + 66, rowY + 16);
-    ctx.fillStyle = g.drank ? '#b9c3d0' : P.ink3;
-    ctx.font = '600 12px ' + FONT;
-    ctx.fillText(g.drank ? '这站已经喝过' : '水分补满 · 体力 +' + C.DRINK_STAMINA, x + 66, rowY + 32);
-    ctx.fillStyle = 'rgba(91,192,248,0.18)';
-    ctx.beginPath();
-    ctx.arc(x + w - 34, rowY + 17, 15, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = g.drank ? '#b9c3d0' : '#3aa6e0';
-    ctx.beginPath();
-    ctx.moveTo(x + w - 34, rowY + 8);
-    ctx.quadraticCurveTo(x + w - 24, rowY + 19, x + w - 34, rowY + 27);
-    ctx.quadraticCurveTo(x + w - 44, rowY + 19, x + w - 34, rowY + 8);
-    ctx.fill();
+    /* 卡片 */
+    card(ctx, P0.x, P0.y, P0.w, P0.h, 22, anyLeft ? 0.94 : 0.82);
 
-    // 吃东西
-    rowY = y + 104;
-    keycap(ctx, x + 20, rowY, 34, 34, '↓', !g.ate);
-    ctx.fillStyle = g.ate ? P.ink3 : P.ink;
-    ctx.font = '700 15px ' + FONT;
-    ctx.fillText('吃东西', x + 66, rowY + 16);
-    ctx.fillStyle = g.ate ? '#b9c3d0' : P.ink3;
-    ctx.font = '600 12px ' + FONT;
-    ctx.fillText(g.ate ? '这站已经吃过' : '体力 +' + C.EAT_STAMINA + ' · 但要慢跑一段', x + 66, rowY + 32);
-    ctx.fillStyle = 'rgba(245,166,35,0.18)';
-    ctx.beginPath();
-    ctx.arc(x + w - 34, rowY + 17, 15, 0, TAU);
-    ctx.fill();
-    ctx.fillStyle = g.ate ? '#b9c3d0' : '#f5a623';
-    ctx.beginPath();
-    ctx.arc(x + w - 34, rowY + 6, 9, Math.PI, TAU);
-    ctx.lineTo(x + w - 25, rowY + 20);
-    ctx.quadraticCurveTo(x + w - 34, rowY + 25, x + w - 43, rowY + 20);
-    ctx.closePath();
-    ctx.fill();
+    var colW = P0.w / 2;
+    var rows = [
+      { x: P0.x + 22, key: 'up', title: '喝水', on: drinkLeft, used: '这站喝过了',
+        desc: '水分补满 · 体力 +' + C.DRINK_STAMINA, accent: '#3aa6e0', tag: 'water' },
+      { x: P0.x + colW + 6, key: 'down', title: '吃东西', on: eatLeft, used: '这站吃过了',
+        desc: '体力 +' + C.EAT_STAMINA + ' · 会慢一段', accent: '#f5a623', tag: 'food' }
+    ];
+
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      keycap(ctx, r.x, P0.y + 21, 46, 44, r.key, r.on, t);
+
+      ctx.fillStyle = r.on ? P.ink : '#aeb9c6';
+      ctx.font = '800 16px ' + FONT;
+      ctx.fillText(r.title, r.x + 60, P0.y + 42);
+
+      ctx.fillStyle = r.on ? P.ink3 : '#c2cbd6';
+      ctx.font = '600 12px ' + FONT;
+      ctx.fillText(r.on ? r.desc : r.used, r.x + 60, P0.y + 62);
+
+      /* 右侧小图标 */
+      var ix = P0.x + (i === 0 ? colW : P0.w) - 34, iy = P0.y + 43;
+      ctx.fillStyle = r.on ? hexA(r.accent, 0.16) : 'rgba(46,64,90,0.06)';
+      ctx.beginPath();
+      ctx.arc(ix, iy, 15, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = r.on ? r.accent : '#c2cbd6';
+      if (r.tag === 'water') {
+        ctx.beginPath();
+        ctx.moveTo(ix, iy - 9);
+        ctx.quadraticCurveTo(ix + 9, iy + 2, ix, iy + 9);
+        ctx.quadraticCurveTo(ix - 9, iy + 2, ix, iy - 9);
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(ix, iy - 3, 8, Math.PI, TAU);
+        ctx.lineTo(ix + 8, iy + 6);
+        ctx.quadraticCurveTo(ix, iy + 11, ix - 8, iy + 6);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
   }
 
   /* ---------------- 标题 / 结算 ---------------- */
@@ -451,15 +430,15 @@
     ctx.textAlign = 'center';
     ctx.fillStyle = P.ink;
     ctx.font = '800 66px ' + FONT;
-    ctx.fillText('节拍长跑', VW / 2, y + 108);
+    ctx.fillText('节奏长跑', VW / 2, y + 108);
     ctx.fillStyle = P.ink3;
     ctx.font = '600 16px ' + FONT;
-    ctx.fillText('一步一拍 · 别乱按，按稳了就省力', VW / 2, y + 144);
+    ctx.fillText('左右交替 · 每次间隔差不多就省力', VW / 2, y + 144);
 
     var rows = [
       { icon: 'AD', title: 'A / D 交替点击', desc: '左右换着来，同侧连点会绊步' },
-      { icon: '拍', title: '踩准金色节拍区', desc: '踩得越准越省体力，连击还有加速' },
-      { icon: '水', title: '补给点喝水吃东西', desc: '水必须补，吃东西回体力但会慢一段' }
+      { icon: '稳', title: '保持固定的间隔', desc: '每一下隔得差不多就省体力，忽快忽慢最费劲' },
+      { icon: '水', title: '补给点按 ↑ / ↓', desc: '↑ 喝水补满水分，↓ 吃东西回体力但会慢一段' }
     ];
     for (var i = 0; i < rows.length; i++) {
       var ry = y + 186 + i * 66;
@@ -517,8 +496,8 @@
       ['用时', fmtTime(s.elapsed)],
       ['距离', Math.floor(s.distance) + ' m'],
       ['平均配速', global.Logic.paceText(s.elapsed, s.distance)],
-      ['完美踩点', (s.strides ? Math.round(100 * s.perfect / s.strides) : 0) + '%'],
-      ['最高连击', s.bestCombo + ''],
+      ['节奏稳定', (s.strides ? Math.round(100 * s.steady / s.strides) : 0) + '%'],
+      ['最长稳定', s.bestCombo + ''],
       ['剩余体力上限', Math.round(s.total) + '']
     ];
     for (var i = 0; i < stats.length; i++) {
@@ -551,6 +530,6 @@
   global.HUD = {
     VW: VW, VH: VH,
     drawHUD: drawHUD, drawTitle: drawTitle, drawResult: drawResult,
-    fmtTime: fmtTime, clamp: clamp
+    GATE_PANEL: GATE_PANEL, fmtTime: fmtTime, clamp: clamp
   };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1,5 +1,5 @@
 /* =========================================================
- *  节拍长跑 · 主循环 / 输入 / 音效（3D 版）
+ *  节奏长跑 · 主循环 / 输入 / 音效（3D 版）
  * ========================================================= */
 (function () {
   'use strict';
@@ -120,20 +120,23 @@
       switch (e.k) {
         case 'stride':
           Scene3D.spawnDust(x - 0.2, (Math.random() - 0.5) * 0.4);
-          if (e.perfect) {
+          if (e.steady) {
             Sfx.perfect(e.combo);
             Scene3D.spawnSparks(x + 0.1, 1.1 + Math.random() * 0.4, 0, e.combo % 6 === 0 ? 4 : 2);
-            if (e.combo >= 6) popup('完美 ×' + e.combo, '#f5a623', 20 + Math.min(10, e.combo * 0.35));
           } else {
             Sfx.step();
-            if (e.ratio > 1.42) popup('慢了', 'rgba(90,105,126,0.92)', 17);
-            else if (e.ratio < 0.68) popup('太快', 'rgba(90,105,126,0.92)', 17);
+            if (e.ratio > 1.5) popup('间隔太长', 'rgba(90,105,126,0.92)', 16);
+            else if (e.ratio < 0.68) popup('太急', 'rgba(90,105,126,0.92)', 16);
           }
           break;
         case 'stumble':
           Sfx.stumble();
           Scene3D.shake(0.28);
           popup('错步！', '#e05243', 22);
+          break;
+        case 'nofood':
+          if (e.reason === 'used') popup('这站已经用过了', 'rgba(90,105,126,0.92)', 16);
+          else popup('附近没有补给点', 'rgba(90,105,126,0.92)', 16);
           break;
         case 'drink': Sfx.drink(); break;
         case 'eat': Sfx.eat(); break;
@@ -189,16 +192,15 @@
     }
   }, { passive: false });
 
-  var GATE_PANEL = { x: 886, y: 468, w: 366, h: 176 };
-
   hudCanvas.addEventListener('pointerdown', function (ev) {
     ev.preventDefault();
     var pt = toLogical(ev.clientX, ev.clientY);
     if (screen === 'over') { reset(); Sfx.init(); return; }
     if (Logic.activeGate(s)) {
-      if (pt.x > GATE_PANEL.x && pt.x < GATE_PANEL.x + GATE_PANEL.w &&
-          pt.y > GATE_PANEL.y && pt.y < GATE_PANEL.y + GATE_PANEL.h) {
-        if (pt.y < GATE_PANEL.y + 98) act('drink'); else act('eat');
+      var gp = HUD.GATE_PANEL;
+      if (pt.x > gp.x && pt.x < gp.x + gp.w &&
+          pt.y > gp.y - 26 && pt.y < gp.y + gp.h) {
+        act(pt.x < gp.x + gp.w / 2 ? 'drink' : 'eat');
         return;
       }
     }
