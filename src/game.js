@@ -12,6 +12,11 @@
 
   var dpr = 1, viewScale = 1, hudScale = 1, ox = 0, oy = 0;
   var s, view;
+  var keyEver = false;              // 是否真的收到过键盘事件（判断焦点是否在页面上）
+  var clickedEver = false;          // 是否点过画面
+  var isTouch = (navigator.maxTouchPoints || 0) > 0 &&
+    !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+  var loadAt = performance.now() / 1000;
 
   var ITEM_NAME = { boost: '加速', jam: '干扰器', bottle: '空水瓶', peel: '香蕉皮' };
 
@@ -19,10 +24,14 @@
   var Sfx = {
     ac: null, muted: false,
     init: function () {
-      if (this.ac) return;
+      if (this.ac) {
+        if (this.ac.state === 'suspended') { try { this.ac.resume(); } catch (e) {} }
+        return;
+      }
       var AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
       try { this.ac = new AC(); } catch (e) { this.ac = null; }
+      if (this.ac && this.ac.state === 'suspended') { try { this.ac.resume(); } catch (e) {} }
     },
     tone: function (freq, dur, type, vol, slide) {
       if (!this.ac || this.muted) return;
@@ -110,6 +119,11 @@
 
   /* ---------------- 提示文字 ---------------- */
   function popup(text, color, size) {
+    // 同一条提示 0.28 秒内重复触发时只刷新，避免低帧下堆成一摞
+    for (var i = view.popups.length - 1; i >= 0; i--) {
+      var q = view.popups[i];
+      if (q.text === text && q.max - q.life < 0.28) { q.life = q.max; return; }
+    }
     var rx = view.runnerScreen ? view.runnerScreen.x : 400;
     var ry = view.runnerScreen ? view.runnerScreen.y : 560;
     view.popups.push({
@@ -260,44 +274,69 @@
     if (r === 'jump') Sfx.jump();
   }
 
+  /* ---------------- 键盘 ----------------
+   * 优先用 ev.code（KeyA / Space…），它不受输入法、键盘布局、大小写影响。
+   * 中文输入法激活时 ev.key 会变成 "Process"，用 code 才不会漏键。 */
+  var CODE_MAP = {
+    Space: 'space', Enter: 'space', NumpadEnter: 'space',
+    KeyA: 'L', ArrowLeft: 'L',
+    KeyD: 'R', ArrowRight: 'R',
+    ArrowUp: 'up', KeyW: 'up',
+    ArrowDown: 'down', KeyS: 'down',
+    Digit1: 'i1', Numpad1: 'i1',
+    Digit2: 'i2', Numpad2: 'i2',
+    KeyR: 'reset', KeyM: 'mute'
+  };
+  function actionOf(ev) {
+    var a = CODE_MAP[ev.code];
+    if (a) return a;
+    // code 缺失时退回 key
+    var k = ev.key || '';
+    if (k === ' ' || k === 'Spacebar' || k === 'Enter') return 'space';
+    if (k === 'ArrowLeft') return 'L';
+    if (k === 'ArrowRight') return 'R';
+    if (k === 'ArrowUp') return 'up';
+    if (k === 'ArrowDown') return 'down';
+    if (k === '1') return 'i1';
+    if (k === '2') return 'i2';
+    if (k.length === 1) {
+      var c = k.toLowerCase();
+      if (c === 'a') return 'L';
+      if (c === 'd') return 'R';
+      if (c === 'w') return 'up';
+      if (c === 's') return 'down';
+      if (c === 'r') return 'reset';
+      if (c === 'm') return 'mute';
+    }
+    return null;
+  }
+
   window.addEventListener('keydown', function (ev) {
-    var k = ev.key;
     if (ev.repeat) return;
+    keyEver = true;
+    var a = actionOf(ev);
+    if (!a) return;
+    ev.preventDefault();
 
-    var jammed = s && s.jamT > 0;
+    var jammed = s.jamT > 0;
 
-    if (k === ' ' || k === 'Spacebar' || k === 'Enter') {
-      ev.preventDefault(); pressSpace(); return;
-    }
-    if (k === '1' || k === '2') {
-      ev.preventDefault();
-      if (s.phase === 'run') Logic.useItem(s, k === '1' ? 0 : 1);
+    if (a === 'space') { pressSpace(); return; }
+    if (a === 'i1' || a === 'i2') {
+      if (s.phase === 'run') Logic.useItem(s, a === 'i1' ? 0 : 1);
       return;
     }
-    if (k === 'a' || k === 'A' || k === 'ArrowLeft') {
-      ev.preventDefault();
-      if (!jammed) stride('L');
-      return;
-    }
-    if (k === 'd' || k === 'D' || k === 'ArrowRight') {
-      ev.preventDefault();
-      if (!jammed) stride('R');
-      return;
-    }
-    if (k === 'ArrowUp') {
-      ev.preventDefault();
+    if (a === 'L') { if (!jammed) stride('L'); return; }
+    if (a === 'R') { if (!jammed) stride('R'); return; }
+    if (a === 'up') {
       if (jammed) stride('L'); else act('drink');
       return;
     }
-    if (k === 'ArrowDown') {
-      ev.preventDefault();
+    if (a === 'down') {
       if (jammed) stride('R'); else act('eat');
       return;
     }
-    if (k === 'w' || k === 'W') { ev.preventDefault(); act('drink'); return; }
-    if (k === 's' || k === 'S') { ev.preventDefault(); act('eat'); return; }
-    if (k === 'r' || k === 'R') { ev.preventDefault(); reset(); Sfx.init(); return; }
-    if (k === 'm' || k === 'M') {
+    if (a === 'reset') { reset(); Sfx.init(); return; }
+    if (a === 'mute') {
       Sfx.init();
       Sfx.muted = !Sfx.muted;
       popup(Sfx.muted ? '静音' : '开声音', 'rgba(90,105,126,0.95)', 16);
@@ -305,8 +344,16 @@
     }
   }, { passive: false });
 
+  /* 拿到键盘焦点（预览面板 / iframe 里首次点击时需要） */
+  function grabFocus() {
+    try { window.focus(); } catch (e) {}
+  }
+  window.addEventListener('load', function () { setTimeout(grabFocus, 60); });
+
   hudCanvas.addEventListener('pointerdown', function (ev) {
     ev.preventDefault();
+    grabFocus();                     // 让键盘事件进到这个页面（iframe / 预览面板里必须）
+    clickedEver = true;
     var pt = toLogical(ev.clientX, ev.clientY);
 
     if (s.phase === 'idle') { pressSpace(); return; }
@@ -381,11 +428,23 @@
     ctx.clearRect(0, 0, VW, VH);
 
     if (s.phase === 'idle') {
-      HUD.drawTitle(ctx, now);
+      var hint, warn = false;
+      if (isTouch) {
+        hint = '手机：点屏幕左右两侧交替 · M 静音';
+      } else if (!keyEver && now - loadAt > 3.5) {
+        warn = true;
+        hint = clickedEver
+          ? '键盘还没响应 · 也可以直接点画面左右两边来跑'
+          : '键盘没反应？先点一下画面';
+      } else {
+        hint = 'A / D 交替 · 空格跳跃 · 1 / 2 道具 · M 静音';
+      }
+      HUD.drawTitle(ctx, now, hint, warn);
     } else {
       HUD.drawHUD(ctx, s, view, now);
       if (s.phase === 'ready') HUD.drawCountdown(ctx, s, now);
       if (s.phase === 'over') HUD.drawResult(ctx, s, now);
+      if (!keyEver && !isTouch && s.phase === 'run') HUD.drawFocusWarn(ctx, now);
     }
 
     requestAnimationFrame(frame);

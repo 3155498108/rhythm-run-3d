@@ -757,7 +757,7 @@
     ctx.fillRect(0, 0, VW, VH);
   }
 
-  function drawTitle(ctx, t) {
+  function drawTitle(ctx, t, hint, warn) {
     overlay(ctx, 0.22);
     var x = 300, y = 96, w = 680, h = 528;
     card(ctx, x, y, w, h, 32, 0.96);
@@ -795,16 +795,36 @@
 
     var pulse = 0.5 + 0.5 * Math.sin(t * 3);
     ctx.fillStyle = 'rgba(255,122,107,' + (0.9 + pulse * 0.1) + ')';
-    rr(ctx, VW / 2 - 150, y + h - 96, 300, 58, 29);
+    rr(ctx, VW / 2 - 175, y + h - 96, 350, 58, 29);
     ctx.fill();
     ctx.fillStyle = '#fff';
-    ctx.font = '800 20px ' + FONT;
-    ctx.fillText('按 空格 开始', VW / 2, y + h - 59);
+    ctx.font = '800 19px ' + FONT;
+    ctx.fillText('点击画面 · 或按 空格 开始', VW / 2, y + h - 59);
 
-    ctx.fillStyle = 'rgba(140,153,171,1)';
-    ctx.font = '600 12px ' + FONT;
-    ctx.fillText('手机：点屏幕左右两侧交替 · M 静音', VW / 2, y + h - 18);
+    var warnC = warn === true;
+    ctx.fillStyle = warnC ? '#e2653f' : 'rgba(140,153,171,1)';
+    ctx.font = (warnC ? '800 13px ' : '600 12px ') + FONT;
+    ctx.fillText(hint || '', VW / 2, y + h - 18);
     ctx.textAlign = 'left';
+  }
+
+  /* 键盘一直没响应时的兜底提示（鼠标 / 触摸也能玩） */
+  function drawFocusWarn(ctx, t) {
+    var text = '键盘未响应 · 点画面左右两边来跑';
+    ctx.font = '800 13px ' + FONT;
+    var w = ctx.measureText(text).width + 38;
+    var x = 22, y = 138;
+    ctx.globalAlpha = 0.88 + 0.12 * Math.sin(t * 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.93)';
+    rr(ctx, x, y, w, 32, 16);
+    ctx.fill();
+    ctx.fillStyle = '#e2653f';
+    ctx.beginPath();
+    ctx.arc(x + 18, y + 16, 5, 0, TAU);
+    ctx.fill();
+    ctx.fillStyle = '#5a6577';
+    ctx.fillText(text, x + 31, y + 21);
+    ctx.globalAlpha = 1;
   }
 
   function drawResult(ctx, s, t) {
@@ -865,6 +885,7 @@
   global.HUD = {
     VW: VW, VH: VH,
     drawHUD: drawHUD, drawTitle: drawTitle, drawResult: drawResult, drawCountdown: drawCountdown,
+    drawFocusWarn: drawFocusWarn,
     GATE_PANEL: GATE_PANEL, ITEM_SLOTS: ITEM_SLOTS, JUMP_BTN: JUMP_BTN, fmtTime: fmtTime, clamp: clamp
   };
 })(typeof window !== 'undefined' ? window : globalThis);
