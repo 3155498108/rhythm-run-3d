@@ -191,7 +191,7 @@
     if (s.mode === 'duo' && s.p2) {
       drawDuoPanel(ctx, s, t);
     } else {
-    var bx = 936, by = 74, bw2 = 316, bh = 214;
+    var bx = 936, by = 74, bw2 = 316, bh = 244;
     card(ctx, bx, by, bw2, bh, 22);
     var ix = bx + 22, iw = bw2 - 44;
 
@@ -237,6 +237,20 @@
     label(ctx, Math.round(s.water) + '', ix + iw, by + 167, 13, s.water < 25 ? '#3aa6e0' : P.ink3, '700');
     ctx.textAlign = 'left';
     drawBar(ctx, ix, by + 176, iw, 13, s.water / 100, '#7cd4fb', '#2b9fe0', t, s.water < 16);
+
+    // 状态行：体力见底时要一眼看出「我在走，不是卡了」
+    var stTxt, stCol;
+    if (s.walking) {
+      stTxt = '体力见底 · 走一走（回满 ' + C.WALK_EXIT + ' 继续跑）';
+      stCol = '#e05243';
+    } else if (s.action === 'eat') { stTxt = '吃香蕉中 · 速度放慢'; stCol = '#c8912a'; }
+    else if (s.action === 'drink') { stTxt = '喝水中 · 速度放慢'; stCol = '#2f8fd6'; }
+    else if (s.slipT > 0) { stTxt = '打滑了'; stCol = '#e2653f'; }
+    else if (s.boostT > 0) { stTxt = '加速中 ' + s.boostT.toFixed(1) + 's'; stCol = '#f5a623'; }
+    else { stTxt = s.speed.toFixed(1) + ' km/h · 步频 ' + Math.round(s.cadence * 60) + ' 步/分'; stCol = P.ink3; }
+    ctx.fillStyle = stCol;
+    ctx.font = '800 13px ' + FONT;
+    ctx.fillText(stTxt, ix, by + 216);
     }
 
     drawGatePrompt(ctx, s, t);

@@ -55,12 +55,13 @@ function run(kind, seed) {
     }
 
     if (t >= next && !P.action) {
-      let iv = C.IDEAL;
-      if (kind === 'human') iv = C.IDEAL * (1 + (rnd() - 0.5) * 0.2);
-      else if (kind === 'jitter') iv = C.IDEAL * (1 + (rnd() - 0.5) * 0.55);
-      else if (kind === 'slow') iv = C.IDEAL * 1.28;
-      else if (kind === 'cruise') iv = C.IDEAL * 1.12;
-      else if (kind === 'masher') iv = 0.15;
+      // 基准 0.27 秒/步：比经济步频快一点，要付体力，但速度能咬住 AI
+      let iv = 0.27;
+      if (kind === 'human') iv = 0.27 * (1 + (rnd() - 0.5) * 0.16);
+      else if (kind === 'jitter') iv = 0.27 * (1 + (rnd() - 0.5) * 0.50);
+      else if (kind === 'cruise') iv = 0.30;
+      else if (kind === 'slow') iv = 0.36;
+      else if (kind === 'masher') iv = 0.16;
       next = t + iv;
       side = 1 - side;
       L.press(s, P, side ? 'L' : 'R');
@@ -102,8 +103,8 @@ console.log('\n—— 双人：同屏两套状态 ----');
     t += dt;
     L.tick(s, t);
     if (s.phase !== 'run') continue;
-    if (t >= n1) { s1 = 1 - s1; L.press(s, p1, s1 ? 'L' : 'R'); n1 = t + 0.30; }
-    if (t >= n2) { s2 = 1 - s2; L.press(s, p2, s2 ? 'L' : 'R'); n2 = t + 0.38; }
+    if (t >= n1) { s1 = 1 - s1; L.press(s, p1, s1 ? 'L' : 'R'); n1 = t + 0.26; }
+    if (t >= n2) { s2 = 1 - s2; L.press(s, p2, s2 ? 'L' : 'R'); n2 = t + 0.31; }
     [p1, p2].forEach(P => {
       const g = L.activeGate(s, P);
       if (g && !P.action) {
@@ -117,7 +118,7 @@ console.log('\n—— 双人：同屏两套状态 ----');
     });
     s.events.length = 0;
   }
-  console.log(`P1 步频0.30 完赛 ${p1.finishT.toFixed(1)}s 名次 ${p1.finishRank} 结束体力 ${p1.stamina.toFixed(0)} 走路${p1.walks} 撞${p1.hits}`);
-  console.log(`P2 步频0.38 完赛 ${p2.finishT.toFixed(1)}s 名次 ${p2.finishRank} 结束体力 ${p2.stamina.toFixed(0)} 走路${p2.walks} 撞${p2.hits}`);
+  console.log(`P1 步频0.26 完赛 ${p1.finishT.toFixed(1)}s 名次 ${p1.finishRank} 结束体力 ${p1.stamina.toFixed(0)} 走路${p1.walks} 撞${p1.hits}`);
+  console.log(`P2 步频0.31 完赛 ${p2.finishT.toFixed(1)}s 名次 ${p2.finishRank} 结束体力 ${p2.stamina.toFixed(0)} 走路${p2.walks} 撞${p2.hits}`);
   console.log(`总时长 ${t.toFixed(1)}s  阶段 ${s.phase}`);
 })();

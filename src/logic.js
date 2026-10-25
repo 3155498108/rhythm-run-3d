@@ -21,23 +21,28 @@
     GATE_AHEAD: 58,       // 补给点提前多少米可操作
     GATE_AFTER: 12,       // 过后多少米失效
 
-    IDEAL: 0.32,          // 参考步频间隔（秒）≈ 187 步/分
+    IDEAL: 0.32,          // 消耗参考步频（秒/步）≈ 187 步/分：踩到这个速度刚好收支平衡
+    SPD_IV: 0.26,         // 速度参考步频：踩到这个步频才是满速，慢于此会明显掉速
     DEBOUNCE: 0.085,      // 防连发
 
-    /* —— 体力：只跟步频有关 —— */
-    COST_BASE: 5.4,       // 参考间隔下一步的体力消耗
-    COST_EXP: 1.30,       // >1：踩得越快，单步越贵（超线性），想省体力只能放慢
+    /* —— 体力：只跟步频有关 ——
+     * COST_RATE 是「参考步频下每秒消耗」，不是单步扣费。
+     * 消耗按 cadence 折算成每秒功率、每帧扣，所以掉帧不会放大消耗
+     * （以前是每次按键固定扣一坨，帧率低时同样手速会扣得快好几倍）。 */
+    COST_RATE: 3.0,       // 参考步频下每秒消耗
+    COST_EXP: 0.85,       // >1：踩得越快，每秒消耗越贵，想省体力只能放慢
     EFFORT_LO: 0.55,
-    EFFORT_HI: 2.10,
-    REGEN: 17.0,          // 每秒自然回复
+    EFFORT_HI: 1.90,
+    REGEN: 10.6,          // 每秒自然回复
 
     WALK_SPEED: 7.0,      // 体力见底时的走路速度（km/h）
-    WALK_EXIT: 35,        // 体力回到多少才能重新跑
-    WALK_REGEN: 1.6,      // 走路时回复倍率
+    WALK_EXIT: 40,        // 体力回到多少才能重新跑
+    WALK_MIN: 2.6,        // 走路的强制最短时间，避免刚站起来又趴下
+    WALK_REGEN: 2.0,      // 走路时回复倍率
 
-    VMAX_MIN: 16,
-    VMAX_SPAN: 10,
-    TOTAL_DRAIN: 0.22,
+    VMAX_MIN: 21.2,
+    VMAX_SPAN: 5.0,
+    TOTAL_DRAIN: 0.16,
     WATER_BASE: 0.50,
     WATER_KMH: 0.020,
 
@@ -45,11 +50,12 @@
     DRINK_TIME: 1.1,
     EAT_SLOW: 0.40,
     DRINK_SLOW: 0.76,
-    EAT_STAMINA: 28,
+    EAT_STAMINA: 40,
     EAT_TOTAL: 4.5,
     EAT_WATER: -6,
     DRINK_STAMINA: 8,
 
+    CAD_CAP: 1.35,        // 步频换算成速度的上限（跑到这个步频就到顶，再快只费体力）
     SPEED_TAU: 3.2,
 
     /* —— 比赛 —— */
@@ -82,9 +88,9 @@
   };
 
   var RIVAL_DEFS = [
-    { name: '阿虎', color: 0x5b7cfa, base: 23.2, z: -1.85, ph: 0.4, avoid: 0.78, aggro: 0.40 },
-    { name: '小鹿', color: 0xf5a623, base: 22.6, z: 0.10, ph: 2.2, avoid: 0.62, aggro: 0.34 },
-    { name: '老陈', color: 0x35b58c, base: 22.0, z: 1.90, ph: 4.1, avoid: 0.46, aggro: 0.28 }
+    { name: '阿虎', color: 0x5b7cfa, base: 22.9, z: -1.85, ph: 0.4, avoid: 0.78, aggro: 0.40 },
+    { name: '小鹿', color: 0xf5a623, base: 22.3, z: 0.10, ph: 2.2, avoid: 0.62, aggro: 0.34 },
+    { name: '老陈', color: 0x35b58c, base: 21.7, z: 1.90, ph: 4.1, avoid: 0.46, aggro: 0.28 }
   ];
 
   function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -146,7 +152,7 @@
       items: [null, null],
 
       elapsed: 0, finished: false, finishT: 0, finishRank: 0, rank: 1,
-      walking: false, waterWarn: false
+      walking: false, walkT: 0, waterWarn: false
     };
   }
 
@@ -328,19 +334,15 @@
     interval = clamp(interval, 0.15, 1.8);
 
     var effort = clamp(C.IDEAL / interval, C.EFFORT_LO, C.EFFORT_HI);
-    var cost = C.COST_BASE * Math.pow(effort, C.COST_EXP);
-    if (r.water <= 0) cost *= 1.30;
-    if (r.boostT > 0) cost *= 0.62;
-    if (r.walking) cost = 0;          // 走路不喘，按再快也不掉体力
+    var cost = C.COST_RATE * Math.pow(effort, C.COST_EXP) / Math.max(0.1, interval);
 
-    r.stamina = Math.max(0, r.stamina - cost);
     r.cadence = 1 / interval;
     r.cadenceT = s.gt;
     r.lastStride = s.gt;
     r.lastSide = side;
     r.strides++;
 
-    s.events.push({ k: 'stride', side: side, p: r.id, cost: cost, interval: interval });
+    s.events.push({ k: 'stride', side: side, p: r.id, rate: cost, interval: interval });
     return true;
   }
 
@@ -539,18 +541,32 @@
       if (r.actionT <= 0) finishAction(s, r);
     }
 
+    // ---- 体力：按当前步频持续扣（连续功率，掉帧也不会多扣） ----
+    if (!r.walking && r.cadence > 0.06) {
+      var iv = 1 / r.cadence;
+      var eff = clamp(C.IDEAL / iv, C.EFFORT_LO, C.EFFORT_HI);
+      var rate = C.COST_RATE * Math.pow(eff, C.COST_EXP) / Math.max(0.1, iv);
+      if (r.water <= 0) rate *= 1.30;
+      if (r.boostT > 0) rate *= 0.62;
+      r.stamina = Math.max(0, r.stamina - rate * dt);
+    }
+
     // ---- 体力见底：被迫走路 ----
     if (!r.walking && r.stamina <= 0.01) {
       r.walking = true;
+      r.walkT = 0;
       r.walks++;
       s.events.push({ k: 'exhausted', p: r.id });
-    } else if (r.walking && r.stamina >= C.WALK_EXIT) {
-      r.walking = false;
-      s.events.push({ k: 'recovered', p: r.id });
+    } else if (r.walking) {
+      r.walkT += dt;
+      if (r.walkT >= C.WALK_MIN && r.stamina >= C.WALK_EXIT) {
+        r.walking = false;
+        s.events.push({ k: 'recovered', p: r.id });
+      }
     }
 
     // ---- 速度 ----
-    var cadRatio = clamp(r.cadence * C.IDEAL, 0, 1.18);
+    var cadRatio = clamp(r.cadence * C.SPD_IV, 0, C.CAD_CAP);
     var vmax = C.VMAX_MIN + C.VMAX_SPAN * (r.total / 100);
     var target = vmax * cadRatio;
     if (r.walking) target = Math.min(target, C.WALK_SPEED);
@@ -581,7 +597,7 @@
     // ---- 体力上限衰减 ----
     var over = Math.max(0, (r.target / Math.max(1, vmax)) - 1);
     var low = r.walking ? 0 : Math.max(0, (28 - r.stamina) / 28);
-    var dTot = C.TOTAL_DRAIN + 0.95 * over + 1.5 * over * over + 0.55 * low + (r.water <= 0 ? 0.28 : 0);
+    var dTot = C.TOTAL_DRAIN + 0.30 * over + 0.50 * over * over + 0.55 * low + (r.water <= 0 ? 0.28 : 0);
     r.total = clamp(r.total - dTot * dt, 0, 100);
 
     // ---- 前进 ----
