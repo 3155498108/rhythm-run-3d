@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
+<title>节拍长跑 3D · 一步一拍</title>
+<meta name="description" content="3D 长跑小游戏：A / D 交替踩步，踩准节拍才省力，补给点记得喝水吃东西。" />
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #cfe8f7;
+    font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, -apple-system, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  #stage { position: fixed; inset: 0; }
+  canvas {
+    position: absolute;
+    display: block;
+    touch-action: none;
+  }
+  #scene { background: #dff0fa; }
+  #hud { cursor: pointer; }
+  #rotate {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: #dff0fa;
+    color: #2c3442;
+    font-size: 16px;
+    font-weight: 600;
+    text-align: center;
+    line-height: 1.8;
+    z-index: 10;
+  }
+  @media (orientation: portrait) and (max-width: 820px) {
+    #rotate { display: flex; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas id="scene"></canvas>
+  <canvas id="hud"></canvas>
+</div>
+<div id="rotate">请把手机横过来<br />横屏玩更舒服</div>
+<script src="vendor/three.min.js"></script>
+<script src="src/logic.js"></script>
+<script src="src/scene.js"></script>
+<script src="src/hud.js"></script>
+<script src="src/game.js"></script>
+</body>
+</html>
