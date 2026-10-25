@@ -14,11 +14,11 @@
   var CAM = {
     backX: -2.6,   // 相机在跑者后方
     height: 2.46,
-    side: 8.4,    // z 距离
-    aimX: 1.8,     // 注视点在跑者前方
+    side: 7.9,     // z 距离
+    aimX: 3.8,     // 注视点在跑者前方（越大视线越朝前，前方障碍不会挤到画面边）
     aimY: 1.05,
     aimZ: 0.0,
-    fov: 42
+    fov: 45
   };
 
   /* ---------- 工具：程序化贴图 ---------- */
@@ -182,12 +182,12 @@
 
   /* ================= 场景 ================= */
   var scene, camera, renderer, sunLight, hemi;
-  var runner, playerRig, rivalRigs = [];
+  var runner, playerRig, p2Rig = null, p2Runner = null, rivalRigs = [];
   var obstacleMeshes = [], bananaPool = [], shotPool = [];
   var dustPool = [], sparkPool = [], ringPool = [];
   var treeList = [], bushList = [], gateGroups = [];
   var backdrop, sunSprite, cloudGroup;
-  var shakeAmt = 0;
+  var shakeAmt = 0, p2Phase = 0;
   var titleAim = 0;
   var finishPull = 0;
   var tmpV = new THREE.Vector3();
@@ -431,33 +431,40 @@
       var g = new THREE.Group();
       g.position.set(d, 0, 0);
 
-      // 立柱
-      for (var sgn = -1; sgn <= 1; sgn += 2) {
-        var post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 3.6, 10), postMat);
-        post.position.set(0, 1.8, sgn * 4.4);
-        post.castShadow = true;
-        g.add(post);
-        var foot = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.16, 10),
-          new THREE.MeshStandardMaterial({ color: 0xdfe6ef, roughness: 0.85 }));
-        foot.position.set(0, 0.08, sgn * 4.4);
-        foot.castShadow = true;
-        g.add(foot);
-      }
+      // 立柱：只留远离镜头那一根。近侧立柱正好夹在镜头和跑者之间，
+      // 每经过一个补给站都会把画面挡掉半秒，所以改成单柱悬臂横梁。
+      var sgn = -1;
+      var post = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 3.6, 10), postMat);
+      post.position.set(0, 1.8, sgn * 4.4);
+      post.castShadow = true;
+      g.add(post);
+      var foot = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.16, 10),
+        new THREE.MeshStandardMaterial({ color: 0xdfe6ef, roughness: 0.85 }));
+      foot.position.set(0, 0.08, sgn * 4.4);
+      foot.castShadow = true;
+      g.add(foot);
 
-      // 横幅
+      // 近侧改成一个矮的补给箱堆，不挡视线
+      var crate = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.72, 0.86),
+        new THREE.MeshStandardMaterial({ color: 0xf0c98a, roughness: 0.85 }));
+      crate.position.set(0.1, 0.36, 4.1);
+      crate.castShadow = true;
+      g.add(crate);
+
+      // 横幅（单侧悬挑）
       var banner = new THREE.Mesh(
-        new THREE.BoxGeometry(0.14, 0.92, 9.0),
+        new THREE.BoxGeometry(0.14, 0.92, 6.2),
         new THREE.MeshStandardMaterial({ map: bannerTexture(d + ' m'), roughness: 0.7 })
       );
-      banner.position.set(0, 3.45, 0);
+      banner.position.set(0, 3.45, -1.3);
       banner.castShadow = true;
       g.add(banner);
 
       // 横幅正反两面贴字
       var faceMat = new THREE.MeshStandardMaterial({ map: bannerTexture(d + ' m'), roughness: 0.7, transparent: true });
       for (var f = -1; f <= 1; f += 2) {
-        var face = new THREE.Mesh(new THREE.PlaneGeometry(8.7, 0.86), faceMat);
-        face.position.set(f * 0.075, 3.45, 0);
+        var face = new THREE.Mesh(new THREE.PlaneGeometry(6.0, 0.86), faceMat);
+        face.position.set(f * 0.075, 3.45, -1.3);
         face.rotation.y = f > 0 ? Math.PI / 2 : -Math.PI / 2;
         g.add(face);
       }
@@ -827,6 +834,12 @@
     playerRig = buildRig({});
     runner = playerRig.root;
     scene.add(runner);
+
+    // P2（双人模式才显示）
+    p2Rig = buildRig({ jersey: 0xff8a5c, shorts: 0x7a3a24, band: 0xfff0d8, hair: 0x3a2a22 });
+    p2Runner = p2Rig.root;
+    p2Runner.visible = false;
+    scene.add(p2Runner);
   }
 
   /* ---------- 对手 ---------- */
@@ -852,7 +865,7 @@
     var orange = mat(0xff8a3d, { roughness: 0.7 });
     var wood = mat(0xd8dde6, { roughness: 0.8 });
 
-    for (var k = 0; k < 3; k++) {
+    for (var k = 0; k < 6; k++) {
       var grp = new THREE.Group();
 
       // 跨栏
@@ -892,24 +905,37 @@
       cone.visible = false;
       grp.add(cone);
 
-      // 水坑
+      // 水坑：贴地的东西最容易看不见，所以加大、加深，再补一圈白边
       var puddle = new THREE.Group();
       var water = new THREE.Mesh(
-        new THREE.CircleGeometry(0.85, 18),
-        new THREE.MeshStandardMaterial({ color: 0x7cc4e8, roughness: 0.15, metalness: 0.1, transparent: true, opacity: 0.85 })
+        new THREE.CircleGeometry(1.15, 22),
+        new THREE.MeshStandardMaterial({
+          color: 0x2f86c4, roughness: 0.08, metalness: 0.25,
+          transparent: true, opacity: 0.95
+        })
       );
       water.rotation.x = -Math.PI / 2;
-      water.scale.set(1.5, 1, 1);
-      water.position.y = 0.02;
+      water.scale.set(1.45, 1, 1);
+      water.position.y = 0.03;
       puddle.add(water);
+
       var rim = new THREE.Mesh(
-        new THREE.RingGeometry(1.22, 1.35, 20),
-        new THREE.MeshBasicMaterial({ color: 0x5aa8d0, transparent: true, opacity: 0.5 })
+        new THREE.RingGeometry(1.55, 1.78, 24),
+        new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 })
       );
       rim.rotation.x = -Math.PI / 2;
-      rim.scale.set(1.5, 1, 1);
-      rim.position.y = 0.025;
+      rim.scale.set(1.45, 1, 1);
+      rim.position.y = 0.035;
       puddle.add(rim);
+
+      var shine = new THREE.Mesh(
+        new THREE.RingGeometry(0.42, 0.62, 18),
+        new THREE.MeshBasicMaterial({ color: 0xa8e0ff, transparent: true, opacity: 0.55 })
+      );
+      shine.rotation.x = -Math.PI / 2;
+      shine.scale.set(1.6, 1, 1);
+      shine.position.set(-0.25, 0.04, 0.15);
+      puddle.add(shine);
       puddle.visible = false;
       grp.add(puddle);
 
@@ -1134,33 +1160,59 @@
   function update(s, view, dt, now) {
     var JUMP_H = 0.66;
     runner.position.x = s.distance;
-    runner.position.z = 0;
+    runner.position.z = s.lane || 0;
     runner.position.y = (s.jumpY || 0) * JUMP_H;
     applyPose(playerRig, s, view.phase, now, dt);
+
+    // P2
+    var p2 = s.p2;
+    var leadD = s.distance, trailD = s.distance, duoGap = 0;
+    if (p2 && p2Runner) {
+      p2Runner.visible = true;
+      p2Runner.position.x = p2.distance;
+      p2Runner.position.z = p2.lane || 0.7;
+      p2Runner.position.y = (p2.jumpY || 0) * JUMP_H;
+      if (s.phase === 'run') {
+        p2Phase += dt * ((p2.speed / 3.6) / 2.2 / 2) * Math.PI * 2;
+      } else if (s.phase === 'idle') {
+        p2Phase = view.phase;
+      }
+      applyPose(p2Rig, p2, p2Phase, now, dt);
+      leadD = Math.max(s.distance, p2.distance);
+      trailD = Math.min(s.distance, p2.distance);
+      duoGap = leadD - trailD;
+    } else if (p2Runner) {
+      p2Runner.visible = false;
+    }
+    var refDist = trailD;
+    var midD = (leadD + trailD) / 2;
+    var fastSpeed = p2 ? Math.max(s.speed, p2.speed) : s.speed;
 
     // 对手
     for (var ri = 0; ri < rivalRigs.length; ri++) {
       var rr = s.rivals[ri];
       var rg = rivalRigs[ri];
       if (!rr) { rg.root.visible = false; continue; }
-      var dv = rr.dist - s.distance;
-      rg.root.visible = rr.dist > -24 && dv < 62;
+      var dv = rr.dist - refDist;
+      rg.root.visible = rr.dist > refDist - 24 && dv < 62 + duoGap;
       rg.root.position.x = rr.dist;
       rg.root.position.z = rr.z;
       rg.root.position.y = (rr.jumpY || 0) * JUMP_H;
       if (rg.root.visible) applyPose(rg, rr, rr.phase, now, dt);
     }
 
-    // 摄像机
-    var pullTarget = s.finished ? 3.4 : 0;
+    // 摄像机：双人时以落后者为基准，并按两人分差把镜头往后、往外拉，
+    // 保证两个人始终同框
+    var pullTarget = (s.finished && !(p2 && !p2.finished)) ? 3.4 : 0;
     finishPull += (pullTarget - finishPull) * (1 - Math.exp(-dt * 2.0));
-    var camX = s.distance + CAM.backX - finishPull;
-    var targetFov = CAM.fov + clamp((s.speed - 12) * 0.16, 0, 2.2);
+    var behind = Math.min(duoGap * 0.30, 9);
+    var camX = trailD + CAM.backX - finishPull - behind;
+    var targetFov = CAM.fov + clamp((fastSpeed - 12) * 0.16, 0, 2.2);
     camera.fov = lerp(camera.fov, targetFov, 1 - Math.exp(-dt * 3));
     camera.updateProjectionMatrix();
     camera.position.x = camX;
-    camera.position.y = CAM.height + Math.sin(now * 3.1) * 0.012 * (s.speed / 20);
-    camera.position.z = CAM.side;
+    camera.position.y = CAM.height + Math.sin(now * 3.1) * 0.012 * (fastSpeed / 20);
+    camera.position.z = CAM.side + Math.min(duoGap * 0.62, 10);
     if (shakeAmt > 0.001) {
       camera.position.x += (Math.random() - 0.5) * shakeAmt;
       camera.position.y += (Math.random() - 0.5) * shakeAmt;
@@ -1168,11 +1220,11 @@
     }
     var aimTarget = s.phase === 'idle' ? 1.9 : 0;
     titleAim += (aimTarget - titleAim) * (1 - Math.exp(-dt * 3));
-    camera.lookAt(camX + CAM.aimX + CAM.backX * -1 + titleAim, CAM.aimY, CAM.aimZ);
+    camera.lookAt(midD + CAM.aimX + titleAim, CAM.aimY, CAM.aimZ);
 
     // 光照跟随
-    sunLight.position.set(s.distance + 6, 14, 9);
-    sunLight.target.position.set(s.distance + 1, 0, -1);
+    sunLight.position.set(midD + 6, 14, 9);
+    sunLight.target.position.set(midD + 1, 0, -1);
     sunLight.target.updateMatrixWorld();
 
     // 天空跟随
@@ -1248,19 +1300,23 @@
         p.mesh.material.opacity = k2;
       }
     }
-    // 障碍物
-    for (i = 0; i < obstacleMeshes.length; i++) {
-      var og = obstacleMeshes[i];
+    // 障碍物：按距离把「视野内的障碍」滚动分配到模型池
+    // （以前是 obstacleMeshes[i] 对应 s.obstacles[i]，池子只有 3 个，
+    //   于是第 4 个之后的障碍永远不显示）
+    var mi = 0;
+    for (i = 0; i < s.obstacles.length && mi < obstacleMeshes.length; i++) {
       var o = s.obstacles[i];
-      if (!o) { og.visible = false; continue; }
-      var od = o.x - s.distance;
-      og.visible = !o.done && od > -8 && od < 64;
-      if (!og.visible) continue;
+      if (o.done) continue;
+      var od = o.x - refDist;
+      if (od <= -10 || od >= 76) continue;
+      var og = obstacleMeshes[mi++];
+      og.visible = true;
       og.position.set(o.x, 0, 0);
       og.userData.hurdle.visible = o.kind === 'hurdle';
       og.userData.cone.visible = o.kind === 'cone';
       og.userData.puddle.visible = o.kind === 'puddle';
     }
+    for (; mi < obstacleMeshes.length; mi++) obstacleMeshes[mi].visible = false;
 
     // 香蕉皮
     for (i = 0; i < bananaPool.length; i++) {
@@ -1270,7 +1326,7 @@
       var bd = bb.x - s.distance;
       bm.visible = bd > -14 && bd < 40;
       if (!bm.visible) continue;
-      bm.position.set(bb.x, 0.02, 0.15);
+      bm.position.set(bb.x, 0.02, bb.z === undefined ? 0.15 : bb.z);
       bm.rotation.y = now * 0.6 + i;
     }
 
@@ -1307,13 +1363,22 @@
     camera.updateProjectionMatrix();
   }
 
-  function runnerScreen(vw, vh, pad) {
-    tmpV.set(runner.position.x, 1.35, 0);
+  function projectionAt(pos, vw, vh) {
+    tmpV.set(pos.x, pos.y + 1.35, pos.z);
     tmpV.project(camera);
     return {
       x: (tmpV.x * 0.5 + 0.5) * vw,
       y: (-tmpV.y * 0.5 + 0.5) * vh
     };
+  }
+
+  function runnerScreen(vw, vh) {
+    return projectionAt(runner.position, vw, vh);
+  }
+
+  function p2Screen(vw, vh) {
+    if (!p2Runner || !p2Runner.visible) return null;
+    return projectionAt(p2Runner.position, vw, vh);
   }
 
   function shake(a) { shakeAmt = Math.max(shakeAmt, a); }
@@ -1334,7 +1399,7 @@
   global.Scene3D = {
     init: init, update: update, render: render, resize: resize,
     reset: reset, shake: shake, spawnDust: spawnDust, spawnSparks: spawnSparks,
-    spawnRing: spawnRing, runnerScreen: runnerScreen, CAM: CAM,
+    spawnRing: spawnRing, runnerScreen: runnerScreen, p2Screen: p2Screen, CAM: CAM,
     get runner() { return runner; }
   };
 })(typeof window !== 'undefined' ? window : globalThis);

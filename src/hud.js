@@ -118,7 +118,7 @@
     label(ctx, '距离', 46, 52, 14, P.ink3, '700');
     ctx.fillStyle = P.ink;
     ctx.font = '800 34px ' + FONT;
-    var distTxt = String(Math.floor(s.distance));
+    var distTxt = String(Math.max(0, Math.floor(s.distance)));
     ctx.fillText(distTxt, 46, 90);
     var dw = ctx.measureText(distTxt).width;
     ctx.fillStyle = P.ink3;
@@ -188,6 +188,9 @@
     ctx.textAlign = 'left';
 
     /* 状态条卡 */
+    if (s.mode === 'duo' && s.p2) {
+      drawDuoPanel(ctx, s, t);
+    } else {
     var bx = 936, by = 74, bw2 = 316, bh = 214;
     card(ctx, bx, by, bw2, bh, 22);
     var ix = bx + 22, iw = bw2 - 44;
@@ -234,17 +237,6 @@
     label(ctx, Math.round(s.water) + '', ix + iw, by + 167, 13, s.water < 25 ? '#3aa6e0' : P.ink3, '700');
     ctx.textAlign = 'left';
     drawBar(ctx, ix, by + 176, iw, 13, s.water / 100, '#7cd4fb', '#2b9fe0', t, s.water < 16);
-
-    /* 稳定连击 */
-    if (s.combo >= 3 && view.runnerScreen) {
-      var cAlpha = clamp((s.combo - 2) / 6, 0, 1);
-      ctx.globalAlpha = cAlpha;
-      ctx.textAlign = 'center';
-      ctx.fillStyle = '#f5a623';
-      ctx.font = '800 15px ' + FONT;
-      ctx.fillText('节奏稳 ×' + s.combo, view.runnerScreen.x, view.runnerScreen.y - 110);
-      ctx.textAlign = 'left';
-      ctx.globalAlpha = 1;
     }
 
     drawGatePrompt(ctx, s, t);
@@ -263,7 +255,9 @@
       ctx.textAlign = 'center';
       ctx.fillStyle = 'rgba(255,255,255,0.95)';
       ctx.font = '800 18px ' + FONT;
-      ctx.fillText('A / D 交替 · 每次间隔差不多就省力', VW / 2, 470);
+      ctx.fillText(s.p2
+        ? 'P1  A / D 跑 · W 跳 · S 补给　　P2  ← / → 跑 · ↑ 跳 · ↓ 补给'
+        : 'A / D 交替 · 踩得慢一点更省体力', VW / 2, 470);
       ctx.textAlign = 'left';
       ctx.globalAlpha = 1;
     }
@@ -301,8 +295,83 @@
     ctx.textAlign = 'left';
   }
 
+  /* ---------------- 双人面板 ---------------- */
+  function drawDuoPanel(ctx, s, t) {
+    var x = 906, y = 74, w = 344, h = 212;
+    card(ctx, x, y, w, h, 22);
+
+    var players = [s, s.p2];
+    var theme = [
+      { name: 'P1', sub: 'A / D', col: '#e2653f' },
+      { name: 'P2', sub: '◀ / ▶', col: '#2f8fd6' }
+    ];
+
+    for (var i = 0; i < 2; i++) {
+      var r = players[i];
+      if (!r) continue;
+      var th = theme[i];
+      var cx = x + 16 + i * 162, cw = 146;
+
+      ctx.fillStyle = th.col;
+      ctx.font = '800 15px ' + FONT;
+      ctx.fillText(th.name, cx, y + 28);
+      ctx.fillStyle = P.ink3;
+      ctx.font = '700 12px ' + FONT;
+      ctx.textAlign = 'right';
+      ctx.fillText(th.sub, cx + cw, y + 27);
+      ctx.textAlign = 'left';
+
+      // 体力
+      var sc = staminaColor(r.stamina / 100);
+      label(ctx, '体力', cx, y + 54, 12, P.ink3, '700');
+      ctx.textAlign = 'right';
+      label(ctx, Math.round(r.stamina) + '', cx + cw, y + 54, 12,
+        r.stamina < 28 ? '#e05243' : P.ink3, '700');
+      ctx.textAlign = 'left';
+      drawBar(ctx, cx, y + 60, cw, 13, r.stamina / 100, sc[0], sc[1], t, r.walking || r.stamina < 18);
+
+      // 水分
+      label(ctx, '水分', cx, y + 96, 12, P.ink3, '700');
+      ctx.textAlign = 'right';
+      label(ctx, Math.round(r.water) + '', cx + cw, y + 96, 12, r.water < 25 ? '#3aa6e0' : P.ink3, '700');
+      ctx.textAlign = 'left';
+      drawBar(ctx, cx, y + 102, cw, 11, r.water / 100, '#7cd4fb', '#2b9fe0', t, r.water < 16);
+
+      // 体力上限
+      label(ctx, '上限', cx, y + 134, 12, P.ink3, '700');
+      ctx.textAlign = 'right';
+      label(ctx, Math.round(r.total) + '', cx + cw, y + 134, 12, P.ink3, '700');
+      ctx.textAlign = 'left';
+      drawBar(ctx, cx, y + 140, cw, 11, r.total / 100, '#ffc86b', '#f59b2b', t, false);
+
+      // 状态
+      var st = '', stc = P.ink3;
+      if (r.finished) { st = '到达终点'; stc = '#43d69b'; }
+      else if (r.walking) { st = '走一走…'; stc = '#e05243'; }
+      else if (r.slipT > 0) { st = '打滑'; stc = '#e2653f'; }
+      else if (r.boostT > 0) { st = '加速中'; stc = '#f5a623'; }
+      else if (r.action === 'eat') { st = '吃香蕉'; stc = '#c8912a'; }
+      else if (r.action === 'drink') { st = '喝水'; stc = '#2f8fd6'; }
+      else { st = r.speed.toFixed(1) + ' km/h'; }
+      ctx.fillStyle = stc;
+      ctx.font = '800 12px ' + FONT;
+      ctx.fillText(st, cx, y + 176);
+    }
+  }
+
   /* ---------------- 名次 ---------------- */
   function drawRank(ctx, s, t) {
+    var total = s.rivals.length + (s.p2 ? 2 : 1);
+    if (s.mode === 'duo' && s.p2) {
+      var w2 = 196, h2 = 34, x2 = 348, y2 = 80;
+      pill(ctx, x2, y2, w2, h2, 17, 'rgba(255,255,255,0.9)');
+      ctx.font = '800 15px ' + FONT;
+      ctx.fillStyle = s.rank === 1 ? '#e2653f' : P.ink;
+      ctx.fillText('P1 第 ' + s.rank, x2 + 15, y2 + 23);
+      ctx.fillStyle = s.p2.rank === 1 ? '#2f8fd6' : P.ink;
+      ctx.fillText('P2 第 ' + s.p2.rank, x2 + 104, y2 + 23);
+      return;
+    }
     var x = 348, y = 80, w = 118, h = 34;
     pill(ctx, x, y, w, h, 17, 'rgba(255,255,255,0.9)');
     ctx.fillStyle = s.rank === 1 ? '#e2653f' : P.ink;
@@ -311,7 +380,7 @@
     ctx.fillStyle = P.ink3;
     ctx.font = '700 13px ' + FONT;
     ctx.textAlign = 'right';
-    ctx.fillText('/ ' + (s.rivals.length + 1), x + w - 14, y + 23);
+    ctx.fillText('/ ' + total, x + w - 14, y + 23);
     ctx.textAlign = 'left';
   }
 
@@ -319,6 +388,23 @@
   function drawRivalDots(ctx, s) {
     var C0 = global.Logic.C;
     var px0 = 348, pw = 566, py = 40;
+
+    // 玩家（双人时两个）
+    var pls = [{ r: s, c: '#e2653f' }];
+    if (s.p2) pls.push({ r: s.p2, c: '#2f8fd6' });
+    for (var pi = 0; pi < pls.length; pi++) {
+      var pr = pls[pi];
+      var fx = clamp(pr.r.distance / C0.RACE_LEN, 0, 1);
+      var mxx = px0 + pw * fx;
+      ctx.fillStyle = pr.c;
+      ctx.beginPath();
+      ctx.arc(mxx, py + 5, 5.5, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+    }
+
     for (var i = 0; i < s.rivals.length; i++) {
       var r = s.rivals[i];
       var f = clamp(r.dist / C0.RACE_LEN, 0, 1);
@@ -578,7 +664,7 @@
       label = String(n); color = '#ffffff'; size = 132;
     }
 
-    if (s.startAt !== null && s.phase === 'ready') {
+    if (!s.p2 && s.startAt !== null && s.phase === 'ready') {
       // 玩家已经按下：显示判定
       if (s.startAt > global.Logic.C.START_FALSE) {
         label = '太早'; color = '#ff7a6b'; size = 96;
@@ -602,11 +688,20 @@
     ctx.fillText(label, VW / 2, 330);
     ctx.globalAlpha = 1;
 
-    var hint = s.startAt === null ? '按 空格 起跑' : '已就绪';
+    var hint, ready;
+    if (s.p2) {
+      var r1 = s.startAt !== null, r2 = s.p2.startAt !== null;
+      hint = (r1 && r2) ? '都已就绪' : ((r1 ? 'P1 已就绪 · ' : '') + (r2 ? 'P2 已就绪 · ' : '') + (r1 ? '' : 'W') + (r1 || r2 ? '' : ' / ') + (r2 ? '' : '↑') + ' 起跑');
+      if (!r1 && !r2) hint = 'W 起跑 · ↑ 起跑';
+      ready = r1 && r2;
+    } else {
+      hint = s.startAt === null ? '按 空格 起跑' : '已就绪';
+      ready = s.startAt !== null;
+    }
     ctx.font = '800 24px ' + FONT;
-    var pulse = s.startAt === null ? (0.75 + 0.25 * Math.sin(t * 6)) : 1;
+    var pulse = ready ? 1 : (0.75 + 0.25 * Math.sin(t * 6));
     ctx.globalAlpha = pulse;
-    ctx.fillStyle = s.startAt === null ? '#ffffff' : '#9df0c8';
+    ctx.fillStyle = ready ? '#9df0c8' : '#ffffff';
     ctx.fillText(hint, VW / 2, 424);
     ctx.globalAlpha = 1;
 
@@ -618,7 +713,7 @@
 
   function drawNextGateHint(ctx, s, t) {
     var C = global.Logic.C;
-    if (global.Logic.activeGate(s)) return;
+    if (global.Logic.activeGate(s, s)) return;
     var nx = null;
     for (var i = 0; i < s.gates.length; i++) {
       if (s.distance < s.gates[i].d - C.GATE_AHEAD) { nx = s.gates[i]; break; }
@@ -685,11 +780,12 @@
 
   function drawGatePrompt(ctx, s, t) {
     var C = global.Logic.C;
-    var g = global.Logic.activeGate(s);
+    var g = global.Logic.activeGate(s, s);
     if (!g) return;
 
     var P0 = GATE_PANEL;
-    var drinkLeft = !g.drank, eatLeft = !g.ate;
+    var pi0 = (s.p2 ? 0 : 0);
+    var drinkLeft = !g.drankBy[pi0], eatLeft = !g.ateBy[pi0];
     var anyLeft = drinkLeft || eatLeft;
 
     /* 上面的小标题 */
@@ -757,6 +853,11 @@
     ctx.fillRect(0, 0, VW, VH);
   }
 
+  var TITLE_BTN = [
+    { x: VW / 2 - 246, y: 520, w: 232, h: 64, mode: 'solo' },
+    { x: VW / 2 + 14, y: 520, w: 232, h: 64, mode: 'duo' }
+  ];
+
   function drawTitle(ctx, t, hint, warn) {
     overlay(ctx, 0.22);
     var x = 300, y = 96, w = 680, h = 528;
@@ -768,10 +869,10 @@
     ctx.fillText('节奏长跑', VW / 2, y + 108);
     ctx.fillStyle = P.ink3;
     ctx.font = '600 16px ' + FONT;
-    ctx.fillText('和三个对手抢 1000 米 · 踩稳节奏，道具开路', VW / 2, y + 144);
+    ctx.fillText('1000 米 · 踩得越快越费体力，见底就只能走一会儿', VW / 2, y + 144);
 
     var rows = [
-      { icon: 'AD', title: 'A / D 交替点击', desc: '左右换着来，每次间隔差不多就省力' },
+      { icon: 'AD', title: 'A / D 交替点击', desc: '左右换着踩；踩得越慢，体力越省，但速度也慢' },
       { icon: '跳', title: '空格：起跑 / 跳跃', desc: '倒计时越接近 GO 起跑越快，路上空格越过障碍' },
       { icon: '道', title: '1 / 2 用道具', desc: '加速、干扰对手；喝水的空瓶、香蕉皮都能扔出去' }
     ];
@@ -794,17 +895,29 @@
     }
 
     var pulse = 0.5 + 0.5 * Math.sin(t * 3);
-    ctx.fillStyle = 'rgba(255,122,107,' + (0.9 + pulse * 0.1) + ')';
-    rr(ctx, VW / 2 - 175, y + h - 96, 350, 58, 29);
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = '800 19px ' + FONT;
-    ctx.fillText('点击画面 · 或按 空格 开始', VW / 2, y + h - 59);
+
+    // 两个模式按钮
+    for (var bi = 0; bi < TITLE_BTN.length; bi++) {
+      var bb = TITLE_BTN[bi];
+      var solo = bb.mode === 'solo';
+      ctx.fillStyle = solo
+        ? 'rgba(255,122,107,' + (0.88 + pulse * 0.12) + ')'
+        : 'rgba(47,143,214,' + (0.78 + pulse * 0.1) + ')';
+      rr(ctx, bb.x, bb.y, bb.w, bb.h, 29);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = '800 18px ' + FONT;
+      ctx.fillText(solo ? '单人 · A / D' : '双人 · WASD vs ↑↓', bb.x + bb.w / 2, bb.y + 26);
+      ctx.font = '700 11px ' + FONT;
+      ctx.globalAlpha = 0.88;
+      ctx.fillText(solo ? '点击 或 按 空格' : '点击 或 按 回车', bb.x + bb.w / 2, bb.y + 46);
+      ctx.globalAlpha = 1;
+    }
 
     var warnC = warn === true;
     ctx.fillStyle = warnC ? '#e2653f' : 'rgba(140,153,171,1)';
     ctx.font = (warnC ? '800 13px ' : '600 12px ') + FONT;
-    ctx.fillText(hint || '', VW / 2, y + h - 18);
+    ctx.fillText(hint || '', VW / 2, y + h - 12);
     ctx.textAlign = 'left';
   }
 
@@ -832,14 +945,21 @@
     var x = 330, y = 108, w = 620, h = 508;
     card(ctx, x, y, w, h, 32, 0.97);
 
-    var g = global.Logic.grade(s.elapsed, s.collapsed, s.finishRank || s.rank);
+    var g = global.Logic.grade(s.elapsed, false, s.finishRank || s.rank);
     ctx.textAlign = 'center';
 
     ctx.fillStyle = P.ink3;
     ctx.font = '700 15px ' + FONT;
-    ctx.fillText(s.collapsed ? '体力见底，被迫退赛' : ('到达终点 · 第 ' + (s.finishRank || s.rank) + ' 名'), VW / 2, y + 46);
+    var headTxt;
+    if (s.p2) {
+      var w1 = (s.finishT || s.elapsed) <= (s.p2.finishT || s.p2.elapsed) ? 'P1' : 'P2';
+      headTxt = w1 + ' 先到终点 · P1 第 ' + (s.finishRank || s.rank) + ' · P2 第 ' + (s.p2.finishRank || s.p2.rank);
+    } else {
+      headTxt = '到达终点 · 第 ' + (s.finishRank || s.rank) + ' 名';
+    }
+    ctx.fillText(headTxt, VW / 2, y + 46);
 
-    var gcol = s.collapsed ? '#8c99ab' : (g.letter === 'S' ? '#f5a623' : g.letter === 'A' ? '#43d69b' : '#5ba8e8');
+    var gcol = (g.letter === 'S' ? '#f5a623' : g.letter === 'A' ? '#43d69b' : '#5ba8e8');
     ctx.fillStyle = gcol;
     ctx.font = '800 86px ' + FONT;
     ctx.fillText(g.letter, VW / 2, y + 132);
@@ -851,7 +971,7 @@
       ['用时', fmtTime(s.elapsed)],
       ['距离', Math.floor(s.distance) + ' m'],
       ['平均配速', global.Logic.paceText(s.elapsed, s.distance)],
-      ['节奏稳定', (s.strides ? Math.round(100 * s.steady / s.strides) : 0) + '%'],
+      ['走路次数', s.walks + ' 次'],
       ['跳过障碍', s.cleared + ' / ' + (s.cleared + s.hits)],
       ['道具命中', s.shotsFired + ' 次']
     ];
@@ -886,6 +1006,7 @@
     VW: VW, VH: VH,
     drawHUD: drawHUD, drawTitle: drawTitle, drawResult: drawResult, drawCountdown: drawCountdown,
     drawFocusWarn: drawFocusWarn,
-    GATE_PANEL: GATE_PANEL, ITEM_SLOTS: ITEM_SLOTS, JUMP_BTN: JUMP_BTN, fmtTime: fmtTime, clamp: clamp
+    GATE_PANEL: GATE_PANEL, ITEM_SLOTS: ITEM_SLOTS, JUMP_BTN: JUMP_BTN,
+    TITLE_BTN: TITLE_BTN, fmtTime: fmtTime, clamp: clamp
   };
 })(typeof window !== 'undefined' ? window : globalThis);
